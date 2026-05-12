@@ -67,65 +67,33 @@ function saveUsers(users) {
 }
 
 async function login(username, password) {
-    try {
-        // Login ke Railway server
-        const response = await axios.post(RAILWAY_LOGIN_URL, {
-            username: username,
-            password: password
-        }, {
-            timeout: 10000, // 10 detik timeout
-            headers: {
-                'Content-Type': 'application/json'
-            }
-        });
+    // Step 1: Try local auth first (always works offline)
+    const users = getUsers();
+    const user = users.find(u => u.username === username);
+    
+    if (user && bcrypt.compareSync(password, user.passwordHash)) {
+        user.lastLogin = new Date().toISOString();
+        saveUsers(users);
+        return { success: true, user: { username: user.username, role: user.role } };
+    }
 
-        if (response.data && response.data.success) {
-            return {
-                success: true,
-                user: response.data.user || {
-                    username: username,
-                    role: response.data.role || 'user'
-                }
-            };
-        } else {
-            return {
-                success: false,
-                reason: response.data?.reason || 'Login gagal'
-            };
+    // Step 2: If local fails, try Railway (for cloud-registered accounts)
+    try {
+        const response = await axios.post(RAILWAY_LOGIN_URL, 
+            { username, password },
+            { timeout: 8000, headers: { 'Content-Type': 'application/json' } }
+        );
+        if (response.data?.success) {
+            return { success: true, user: response.data.user || { username, role: 'user' } };
         }
+        return { success: false, reason: response.data?.reason || 'Login gagal' };
     } catch (error) {
-        // Handle error jika server Railway offline
-        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
-            return { success: false, reason: 'Server timeout. Coba lagi nanti.' };
+        if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT' || !error.response) {
+            return { success: false, reason: 'Username/password salah. Jika akun cloud, pastikan ada koneksi internet.' };
         }
-        if (error.response) {
-            // Server merespons tapi dengan error
-            const status = error.response.status;
-            if (status === 401) {
-                return { success: false, reason: 'Username atau password salah' };
-            }
-            if (status === 404) {
-                return { success: false, reason: 'Endpoint login tidak ditemukan' };
-            }
-            return { success: false, reason: error.response.data?.reason || 'Server error: ' + status };
-        }
-        if (error.request && !error.response) {
-            // Request dikirim tapi tidak ada respons. Coba fallback ke autentikasi lokal.
-            const users = getUsers();
-            const user = users.find(u => u.username === username);
-            if (user && bcrypt.compareSync(password, user.passwordHash)) {
-                user.lastLogin = new Date().toISOString();
-                user.loginAttempts = 0;
-                saveUsers(users);
-                return {
-                    success: true,
-                    user: { username: user.username, role: user.role }
-                };
-            }
-            return { success: false, reason: 'Server offline dan kredensial lokal tidak cocok. Periksa koneksi internet atau gunakan akun lokal.' };
-        }
-        // Error lainnya
-        return { success: false, reason: 'Terjadi kesalahan: ' + error.message };
+        const status = error.response?.status;
+        if (status === 401) return { success: false, reason: 'Username atau password salah' };
+        return { success: false, reason: 'Server error: ' + (status || error.message) };
     }
 }
 

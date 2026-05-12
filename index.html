@@ -586,24 +586,209 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                 </div>
               </div>
 
-              <!-- MOBILE -->
+              <!-- MOBILE / DEVICE -->
               <div class="prop-group" id="pg-mobile" style="display:none;">
                 <label class="prop-label">Device ID (kosong = perangkat aktif)</label>
                 <input class="prop-input" id="pe-device-id" placeholder="emulator-5554" oninput="saveProp('deviceId',this.value)">
-                <div class="prop-row2" style="margin-top:8px;">
-                  <div>
-                    <label class="prop-label">X</label>
-                    <input class="prop-input" type="number" id="pe-mx" oninput="saveProp('mx',+this.value)">
-                  </div>
-                  <div>
-                    <label class="prop-label">Y</label>
-                    <input class="prop-input" type="number" id="pe-my" oninput="saveProp('my',+this.value)">
+              </div>
+
+              <!-- MOBILE TAP -->
+              <div class="prop-group" id="pg-mobile-tap" style="display:none;">
+                <label class="prop-label">Coordinate X</label>
+                <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('mx',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Coordinate Y</label>
+                <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('my',+this.value)">
+                <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick From Screen</button>
+                <label class="prop-label" style="margin-top:8px;">Randomize Offset</label>
+                <input class="prop-input" type="checkbox" id="pe-mtap-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleTapOffsetRange(this.checked)">
+                <div id="pg-mtap-offset" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Offset Range (px)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-offset" value="3" oninput="saveProp('offsetRange',+this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Tap Duration (ms)</label>
+                <input class="prop-input" type="number" id="pe-mtap-duration" value="100" oninput="saveProp('tapDuration',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Long Press</label>
+                <input class="prop-input" type="checkbox" id="pe-mtap-longpress" onchange="saveProp('isLongPress', this.checked)">
+              </div>
+
+              <!-- MOBILE WAIT TEXT -->
+              <div class="prop-group" id="pg-mobile-wait" style="display:none;">
+                <label class="prop-label">Target Text</label>
+                <input class="prop-input" id="pe-mwt-text" placeholder="Text to wait for" oninput="saveProp('waitText',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Match Type</label>
+                <select class="prop-input prop-select" id="pe-mwt-match" onchange="saveProp('matchType',this.value)">
+                  <option value="contains">Contains</option>
+                  <option value="exact">Exact Match</option>
+                  <option value="startsWith">Starts With</option>
+                  <option value="regex">Regex</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-mwt-case" onchange="saveProp('caseSensitive', this.checked)"> Case Sensitive</label>
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-mwt-timeout" value="10000" oninput="saveProp('timeout',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">OCR Region (optional)</label>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-mwt-ocr-x" placeholder="0" oninput="saveProp('ocrRegionX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-mwt-ocr-y" placeholder="0" oninput="saveProp('ocrRegionY',+this.value)"></div>
+                </div>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">Width</label><input class="prop-input" type="number" id="pe-mwt-ocr-w" placeholder="0" oninput="saveProp('ocrRegionW',+this.value)"></div>
+                  <div><label class="prop-label">Height</label><input class="prop-input" type="number" id="pe-mwt-ocr-h" placeholder="0" oninput="saveProp('ocrRegionH',+this.value)"></div>
+                </div>
+                <label class="prop-label" style="margin-top:8px;">OCR Language</label>
+                <select class="prop-input prop-select" id="pe-mwt-lang" onchange="saveProp('ocrLanguage',this.value)">
+                  <option value="english">English</option>
+                  <option value="indonesian">Indonesian</option>
+                  <option value="auto">Auto-detect</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">On Found Action</label>
+                <select class="prop-input prop-select" id="pe-mwt-action" onchange="saveProp('onFoundAction',this.value); toggleWaitTextOffsetFields(this.value)">
+                  <option value="continue">Continue</option>
+                  <option value="tap_found_text">Tap Found Text</option>
+                  <option value="tap_offset">Tap Offset</option>
+                </select>
+                <div id="pe-mwt-offset-group" style="display:none; margin-top:8px;">
+                  <div class="prop-row2" style="gap:8px;">
+                    <div><label class="prop-label">Tap Offset X</label><input class="prop-input" type="number" id="pe-mwt-offset-x" value="0" oninput="saveProp('tapOffsetX',+this.value)"></div>
+                    <div><label class="prop-label">Tap Offset Y</label><input class="prop-input" type="number" id="pe-mwt-offset-y" value="0" oninput="saveProp('tapOffsetY',+this.value)"></div>
                   </div>
                 </div>
-                <label class="prop-label" style="margin-top:8px;">Key Code (press-key)</label>
-                <input class="prop-input" id="pe-keycode" placeholder="e.g. 3 (Home), 4 (Back)" oninput="saveProp('keyCode',this.value)">
-                <label class="prop-label" style="margin-top:8px;">Screenshot Path</label>
-                <input class="prop-input" id="pe-screenshot-path" placeholder="/sdcard/screen.png" oninput="saveProp('screenshotPath',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                <input class="prop-input" type="number" id="pe-mwt-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+              </div>
+
+              <!-- WAIT & TAP -->
+              <div class="prop-group" id="pg-wait-and-tap" style="display:none;">
+                <label class="prop-label">Delay Before (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-delay" value="500" oninput="saveProp('delayBefore',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-timeout" value="10000" oninput="saveProp('timeout',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Tap Coordinate X</label>
+                <input class="prop-input" type="number" id="pe-wat-x" value="0" oninput="saveProp('tapX',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Tap Coordinate Y</label>
+                <input class="prop-input" type="number" id="pe-wat-y" value="0" oninput="saveProp('tapY',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Reference Image</label>
+                <input class="prop-input" type="file" id="pe-wat-ref-img" accept="image/*" onchange="handleWaitTapImage(this)">
+                <img id="pe-wat-ref-preview" style="display:none;width:100%;margin-top:8px;border:1px solid var(--border);border-radius:8px;max-height:160px;object-fit:contain;">
+                <label class="prop-label" style="margin-top:8px;">Confidence Threshold (%)</label>
+                <input class="prop-input" type="range" id="pe-wat-confidence" min="0" max="100" value="80" oninput="saveProp('confidence',+this.value); updateWaitTapConfidence(this.value)">
+                <div id="pe-wat-confidence-value" style="font-size:11px;color:var(--dim2);">80%</div>
+                <label class="prop-label" style="margin-top:8px;">Search Region</label>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-wat-region-x" placeholder="0" oninput="saveProp('searchRegionX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-wat-region-y" placeholder="0" oninput="saveProp('searchRegionY',+this.value)"></div>
+                </div>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">Width</label><input class="prop-input" type="number" id="pe-wat-region-w" placeholder="0" oninput="saveProp('searchRegionW',+this.value)"></div>
+                  <div><label class="prop-label">Height</label><input class="prop-input" type="number" id="pe-wat-region-h" placeholder="0" oninput="saveProp('searchRegionH',+this.value)"></div>
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Randomize Tap Offset</label>
+                <input class="prop-input" type="checkbox" id="pe-wat-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleWaitTapOffsetRange(this.checked)">
+                <div id="pg-wat-offset-range" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Offset Range (px)</label>
+                  <input class="prop-input" type="number" id="pe-wat-offset" value="5" oninput="saveProp('offsetRange',+this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">On Timeout Action</label>
+                <select class="prop-input prop-select" id="pe-wat-onfail" onchange="saveProp('onTimeoutAction',this.value); toggleWaitTapGoto(this.value)">
+                  <option value="stop">Stop Flow</option>
+                  <option value="retry">Retry</option>
+                  <option value="skip">Skip</option>
+                  <option value="goto">Go To Step</option>
+                </select>
+                <div id="pg-wat-goto" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Go To Step ID</label>
+                  <input class="prop-input" id="pe-wat-goto-step" placeholder="Step ID" oninput="saveProp('gotoStep',this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Retry Count</label>
+                <input class="prop-input" type="number" id="pe-wat-retry-count" value="3" oninput="saveProp('retryCount',+this.value)">
+              </div>
+
+              <!-- MOBILE KEYEVENT -->
+              <div class="prop-group" id="pg-mobile-key" style="display:none;">
+                <label class="prop-label">Key Code</label>
+                <select class="prop-input prop-select" id="pe-mobile-keycode" onchange="saveProp('keyCode',this.value)">
+                  <option value="3">HOME (3)</option>
+                  <option value="4">BACK (4)</option>
+                  <option value="82">MENU (82)</option>
+                  <option value="26">POWER (26)</option>
+                  <option value="24">VOLUME_UP (24)</option>
+                  <option value="25">VOLUME_DOWN (25)</option>
+                  <option value="66">ENTER (66)</option>
+                  <option value="67">DEL (67)</option>
+                  <option value="61">TAB (61)</option>
+                  <option value="62">SPACE (62)</option>
+                  <option value="84">SEARCH (84)</option>
+                  <option value="27">CAMERA (27)</option>
+                  <option value="19">DPAD_UP (19)</option>
+                  <option value="20">DPAD_DOWN (20)</option>
+                  <option value="21">DPAD_LEFT (21)</option>
+                  <option value="22">DPAD_RIGHT (22)</option>
+                  <option value="23">DPAD_CENTER (23)</option>
+                  <option value="187">APP_SWITCH (187)</option>
+                  <option value="83">NOTIFICATION (83)</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <div id="pg-mobile-key-custom" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Custom Key Code</label>
+                  <input class="prop-input" type="number" id="pe-mobile-key-custom" oninput="saveProp('customKeyCode',+this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Long Press</label>
+                <input class="prop-input" type="checkbox" id="pe-mobile-key-long" onchange="saveProp('longPress',this.checked)">
+                <label class="prop-label" style="margin-top:8px;">Long Press Duration (ms)</label>
+                <input class="prop-input" type="number" id="pe-mobile-key-duration" value="1000" oninput="saveProp('longPressDuration',+this.value)">
+              </div>
+
+              <!-- MOBILE SCREENSHOT -->
+              <div class="prop-group" id="pg-mobile-screenshot" style="display:none;">
+                <label class="prop-label">Save To Path</label>
+                <input class="prop-input" id="pe-ms-save-path" placeholder="/Users/me/screenshots" oninput="saveProp('savePath',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Filename Pattern</label>
+                <input class="prop-input" id="pe-ms-filename" value="screenshot_{timestamp}" oninput="saveProp('filenamePattern',this.value)">
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-ms-timestamp" onchange="saveProp('includeTimestamp',this.checked)" checked> Include Timestamp</label>
+                <label class="prop-label" style="margin-top:8px;">Also Save to Variable</label>
+                <input class="prop-input" id="pe-ms-var" placeholder="screenshot_base64" oninput="saveProp('outputVariable',this.value)">
+              </div>
+
+              <!-- OPEN APP -->
+              <div class="prop-group" id="pg-open-app" style="display:none;">
+                <label class="prop-label">Package Name</label>
+                <input class="prop-input" id="pe-open-package" placeholder="com.whatsapp" oninput="saveProp('packageName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Activity Name</label>
+                <input class="prop-input" id="pe-open-activity" placeholder="com.whatsapp.Main" oninput="saveProp('activityName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Wait After Launch (ms)</label>
+                <input class="prop-input" type="number" id="pe-open-wait" value="2000" oninput="saveProp('waitAfterLaunch',+this.value)">
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-open-force-stop" onchange="saveProp('forceStopFirst',this.checked)"> Force Stop First</label>
+              </div>
+
+              <!-- CLOSE APP -->
+              <div class="prop-group" id="pg-close-app" style="display:none;">
+                <label class="prop-label">Package Name</label>
+                <input class="prop-input" id="pe-close-package" placeholder="com.whatsapp" oninput="saveProp('packageName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Wait After (ms)</label>
+                <input class="prop-input" type="number" id="pe-close-wait" value="500" oninput="saveProp('waitAfter',+this.value)">
+              </div>
+
+              <!-- READ UI ELEMENT -->
+              <div class="prop-group" id="pg-read-ui-element" style="display:none;">
+                <label class="prop-label">Selector Type</label>
+                <select class="prop-input prop-select" id="pe-read-type" onchange="saveProp('selectorType',this.value)">
+                  <option value="resource-id">Resource ID</option>
+                  <option value="content-desc">Content Description</option>
+                  <option value="text">Text</option>
+                  <option value="xpath">XPath</option>
+                  <option value="class">Class</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Selector Value</label>
+                <input class="prop-input" id="pe-read-value" placeholder="Enter selector value" oninput="saveProp('selectorValue',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Attribute To Read</label>
+                <select class="prop-input prop-select" id="pe-read-attr" onchange="saveProp('attribute',this.value)">
+                  <option value="text">text</option>
+                  <option value="contentDescription">contentDescription</option>
+                  <option value="bounds">bounds</option>
+                  <option value="isEnabled">isEnabled</option>
+                  <option value="isChecked">isChecked</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-read-timeout" value="5000" oninput="saveProp('timeout',+this.value)">
               </div>
 
               <!-- EXTRACT TEXT -->

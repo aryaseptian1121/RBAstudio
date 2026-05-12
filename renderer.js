@@ -73,10 +73,13 @@ const ACTIVITIES = [
 
   { sec: 'Mobile (ADB)' },
   { type:'mobile-tap',      icon:'📱', label:'Mobile Tap',      desc:'ADB tap koordinat',         color:'#a855f7', bg:'rgba(168,85,247,0.15)' },
+  { type:'mobile-find-text', icon:'🔍', label:'Mobile Wait Text', desc:'Tunggu teks muncul via OCR', color:'#10b981', bg:'rgba(16,185,129,0.15)' }, // NEW
+  { type:'mobile-type',      icon:'⌨️', label:'Mobile Type',      desc:'Ketik teks ke field aktif', color:'#06b6d4', bg:'rgba(6,182,212,0.15)' }, // NEW
+  { type:'mobile-scroll',    icon:'📜', label:'Mobile Scroll',    desc:'Scroll layar atas/bawah/kiri/kanan', color:'#8b5cf6', bg:'rgba(139,92,246,0.15)' }, // NEW
   { type:'mobile-swipe',    icon:'👆', label:'Mobile Swipe',    desc:'ADB swipe gesture',         color:'#a855f7', bg:'rgba(168,85,247,0.15)' },
   { type:'mobile-press-key',icon:'⌨️', label:'Press Key',       desc:'ADB input keyevent',        color:'#8b5cf6', bg:'rgba(139,92,246,0.15)' },
   { type:'mobile-screenshot',icon:'📸',label:'Mobile Screenshot',desc:'ADB screencap',            color:'#ec4899', bg:'rgba(236,72,153,0.15)' },
-  { type:'mobile-find-text',icon:'🔎', label:'Find Text (OCR)', desc:'OCR pada layar HP',         color:'#14b8a6', bg:'rgba(20,184,166,0.15)' },
+  { type:'wait-and-tap',     icon:'🎯', label:'Wait & Tap',       desc:'Tunggu teks lalu tap koordinat', color:'#f43f5e', bg:'rgba(244,63,94,0.15)' }, // NEW
   { type:'open-app',        icon:'📲', label:'Open App',        desc:'Launch Android app',        color:'#10b981', bg:'rgba(16,185,129,0.15)' },
   { type:'close-app',       icon:'❌', label:'Close App',       desc:'Force-stop app',            color:'#f43f5e', bg:'rgba(244,63,94,0.15)'  },
   { type:'read-ui-element', icon:'👁️', label:'Read UI Element', desc:'Baca teks dari UI',         color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
@@ -539,7 +542,15 @@ function resetPanelState() {
     'pe-type-selector', 'pe-text', 'pe-clear', 'pe-typespeed',
     'pe-url', 'pe-browser', 'pe-bmode', 'pe-bwait',
     'pe-dir', 'pe-dur', 'pe-sx', 'pe-sy', 'pe-ex', 'pe-ey',
-    'pe-mx', 'pe-my', 'pe-device-id', 'pe-keycode', 'pe-screenshot-path',
+    'pe-device-id',
+    'pe-mtap-x', 'pe-mtap-y', 'pe-mtap-randomize', 'pe-mtap-offset', 'pe-mtap-duration', 'pe-mtap-longpress',
+    'pe-mwt-text', 'pe-mwt-match', 'pe-mwt-case', 'pe-mwt-timeout', 'pe-mwt-ocr-x', 'pe-mwt-ocr-y', 'pe-mwt-ocr-w', 'pe-mwt-ocr-h', 'pe-mwt-lang', 'pe-mwt-action', 'pe-mwt-offset-x', 'pe-mwt-offset-y', 'pe-mwt-interval',
+    'pe-wat-delay', 'pe-wat-timeout', 'pe-wat-x', 'pe-wat-y', 'pe-wat-ref-img', 'pe-wat-confidence', 'pe-wat-region-x', 'pe-wat-region-y', 'pe-wat-region-w', 'pe-wat-region-h', 'pe-wat-randomize', 'pe-wat-offset', 'pe-wat-onfail', 'pe-wat-goto-step', 'pe-wat-retry-count',
+    'pe-mobile-keycode', 'pe-mobile-key-custom', 'pe-mobile-key-long', 'pe-mobile-key-duration',
+    'pe-ms-save-path', 'pe-ms-filename', 'pe-ms-timestamp', 'pe-ms-var',
+    'pe-open-package', 'pe-open-activity', 'pe-open-wait', 'pe-open-force-stop',
+    'pe-close-package', 'pe-close-wait',
+    'pe-read-type', 'pe-read-value', 'pe-read-attr', 'pe-read-timeout',
     'pe-ext-sel', 'pe-ext-attr', 'pe-ext-regex',
     'pe-cond', 'pe-true-step', 'pe-false-step',
     'pe-loop-count', 'pe-loop-var', 'pe-loop-break',
@@ -590,9 +601,14 @@ const PROP_GROUPS = {
   'type-into':['pg-type'],
   'open-browser':['pg-browser'],
   'swipe':['pg-swipe'],
-  'mobile-tap':['pg-mobile'], 'mobile-swipe':['pg-mobile','pg-swipe'],
-  'mobile-press-key':['pg-mobile'], 'mobile-screenshot':['pg-mobile'],
-  'mobile-find-text':['pg-mobile'], 'open-app':['pg-mobile'], 'close-app':['pg-mobile'],
+  'mobile-tap':['pg-mobile','pg-mobile-tap'], 'mobile-swipe':['pg-mobile','pg-swipe'],
+  'mobile-press-key':['pg-mobile','pg-mobile-key'], 'mobile-screenshot':['pg-mobile','pg-mobile-screenshot'],
+  'mobile-find-text':['pg-mobile','pg-mobile-wait'],
+  'mobile-type':['pg-mobile','pg-type'],
+  'mobile-scroll':['pg-mobile','pg-swipe'],
+  'wait-and-tap':['pg-mobile','pg-wait-and-tap'],
+  'open-app':['pg-mobile','pg-open-app'], 'close-app':['pg-mobile','pg-close-app'],
+  'read-ui-element':['pg-mobile','pg-read-ui-element'],
   'extract-text':['pg-extract'], 'extract-table':['pg-extract'],
   'if-condition':['pg-condition'],
   'repeat-start':['pg-loop'], 'repeat-end':[],
@@ -643,15 +659,71 @@ function showProp(s) {
   document.getElementById('pe-ex').value = s.ex ?? 0;
   document.getElementById('pe-ey').value = s.ey ?? 0;
   // Mobile
-  document.getElementById('pe-mx').value = s.mx ?? 0;
-  document.getElementById('pe-my').value = s.my ?? 0;
   document.getElementById('pe-device-id').value = s.deviceId ?? '';
-  document.getElementById('pe-keycode').value = s.keyCode ?? '';
-  document.getElementById('pe-screenshot-path').value = s.screenshotPath ?? '/sdcard/screen.png';
-  // Extract
-  document.getElementById('pe-ext-sel').value = s.selector ?? '';
-  document.getElementById('pe-ext-attr').value = s.attribute ?? '';
-  document.getElementById('pe-ext-regex').value = s.regex ?? '';
+  if (document.getElementById('pe-mtap-x')) document.getElementById('pe-mtap-x').value = s.mx ?? 0;
+  if (document.getElementById('pe-mtap-y')) document.getElementById('pe-mtap-y').value = s.my ?? 0;
+  if (document.getElementById('pe-mtap-randomize')) document.getElementById('pe-mtap-randomize').checked = Boolean(s.randomizeTapOffset);
+  if (document.getElementById('pe-mtap-offset')) document.getElementById('pe-mtap-offset').value = s.offsetRange ?? 3;
+  if (document.getElementById('pe-mtap-duration')) document.getElementById('pe-mtap-duration').value = s.tapDuration ?? 100;
+  if (document.getElementById('pe-mtap-longpress')) document.getElementById('pe-mtap-longpress').checked = Boolean(s.isLongPress);
+  if (document.getElementById('pe-mwt-text')) document.getElementById('pe-mwt-text').value = s.waitText ?? '';
+  if (document.getElementById('pe-mwt-match')) document.getElementById('pe-mwt-match').value = s.matchType ?? 'contains';
+  if (document.getElementById('pe-mwt-case')) document.getElementById('pe-mwt-case').checked = Boolean(s.caseSensitive);
+  if (document.getElementById('pe-mwt-timeout')) document.getElementById('pe-mwt-timeout').value = s.timeout ?? 10000;
+  if (document.getElementById('pe-mwt-ocr-x')) document.getElementById('pe-mwt-ocr-x').value = s.ocrRegionX ?? 0;
+  if (document.getElementById('pe-mwt-ocr-y')) document.getElementById('pe-mwt-ocr-y').value = s.ocrRegionY ?? 0;
+  if (document.getElementById('pe-mwt-ocr-w')) document.getElementById('pe-mwt-ocr-w').value = s.ocrRegionW ?? 0;
+  if (document.getElementById('pe-mwt-ocr-h')) document.getElementById('pe-mwt-ocr-h').value = s.ocrRegionH ?? 0;
+  if (document.getElementById('pe-mwt-lang')) document.getElementById('pe-mwt-lang').value = s.ocrLanguage ?? 'auto';
+  if (document.getElementById('pe-mwt-action')) document.getElementById('pe-mwt-action').value = s.onFoundAction ?? 'continue';
+  if (document.getElementById('pe-mwt-offset-x')) document.getElementById('pe-mwt-offset-x').value = s.tapOffsetX ?? 0;
+  if (document.getElementById('pe-mwt-offset-y')) document.getElementById('pe-mwt-offset-y').value = s.tapOffsetY ?? 0;
+  if (document.getElementById('pe-mwt-interval')) document.getElementById('pe-mwt-interval').value = s.retryInterval ?? 1000;
+  if (document.getElementById('pe-wat-delay')) document.getElementById('pe-wat-delay').value = s.delayBefore ?? 500;
+  if (document.getElementById('pe-wat-timeout')) document.getElementById('pe-wat-timeout').value = s.timeout ?? 10000;
+  if (document.getElementById('pe-wat-x')) document.getElementById('pe-wat-x').value = s.tapX ?? 0;
+  if (document.getElementById('pe-wat-y')) document.getElementById('pe-wat-y').value = s.tapY ?? 0;
+  if (document.getElementById('pe-wat-confidence')) document.getElementById('pe-wat-confidence').value = s.confidence ?? 80;
+  if (document.getElementById('pe-wat-confidence-value')) document.getElementById('pe-wat-confidence-value').textContent = (s.confidence ?? 80) + '%';
+  if (document.getElementById('pe-wat-region-x')) document.getElementById('pe-wat-region-x').value = s.searchRegionX ?? 0;
+  if (document.getElementById('pe-wat-region-y')) document.getElementById('pe-wat-region-y').value = s.searchRegionY ?? 0;
+  if (document.getElementById('pe-wat-region-w')) document.getElementById('pe-wat-region-w').value = s.searchRegionW ?? 0;
+  if (document.getElementById('pe-wat-region-h')) document.getElementById('pe-wat-region-h').value = s.searchRegionH ?? 0;
+  if (document.getElementById('pe-wat-randomize')) document.getElementById('pe-wat-randomize').checked = Boolean(s.randomizeTapOffset);
+  if (document.getElementById('pe-wat-offset')) document.getElementById('pe-wat-offset').value = s.offsetRange ?? 5;
+  if (document.getElementById('pe-wat-onfail')) document.getElementById('pe-wat-onfail').value = s.onTimeoutAction ?? 'stop';
+  if (document.getElementById('pe-wat-goto-step')) document.getElementById('pe-wat-goto-step').value = s.gotoStep ?? '';
+  if (document.getElementById('pe-wat-retry-count')) document.getElementById('pe-wat-retry-count').value = s.retryCount ?? 3;
+  if (document.getElementById('pe-mobile-keycode')) document.getElementById('pe-mobile-keycode').value = s.keyCode ?? '3';
+  if (document.getElementById('pe-mobile-key-custom')) document.getElementById('pe-mobile-key-custom').value = s.customKeyCode ?? 0;
+  if (document.getElementById('pe-mobile-key-long')) document.getElementById('pe-mobile-key-long').checked = Boolean(s.longPress);
+  if (document.getElementById('pe-mobile-key-duration')) document.getElementById('pe-mobile-key-duration').value = s.longPressDuration ?? 1000;
+  if (document.getElementById('pe-ms-save-path')) document.getElementById('pe-ms-save-path').value = s.savePath ?? '';
+  if (document.getElementById('pe-ms-filename')) document.getElementById('pe-ms-filename').value = s.filenamePattern ?? 'screenshot_{timestamp}';
+  if (document.getElementById('pe-ms-timestamp')) document.getElementById('pe-ms-timestamp').checked = s.includeTimestamp !== false;
+  if (document.getElementById('pe-ms-var')) document.getElementById('pe-ms-var').value = s.outputVariable ?? s.var ?? '';
+  if (document.getElementById('pe-open-package')) document.getElementById('pe-open-package').value = s.packageName ?? '';
+  if (document.getElementById('pe-open-activity')) document.getElementById('pe-open-activity').value = s.activityName ?? '';
+  if (document.getElementById('pe-open-wait')) document.getElementById('pe-open-wait').value = s.waitAfterLaunch ?? 2000;
+  if (document.getElementById('pe-open-force-stop')) document.getElementById('pe-open-force-stop').checked = Boolean(s.forceStopFirst);
+  if (document.getElementById('pe-close-package')) document.getElementById('pe-close-package').value = s.packageName ?? '';
+  if (document.getElementById('pe-close-wait')) document.getElementById('pe-close-wait').value = s.waitAfter ?? 500;
+  if (document.getElementById('pe-read-type')) document.getElementById('pe-read-type').value = s.selectorType ?? 'resource-id';
+  if (document.getElementById('pe-read-value')) document.getElementById('pe-read-value').value = s.selectorValue ?? s.selector ?? '';
+  if (document.getElementById('pe-read-attr')) document.getElementById('pe-read-attr').value = s.attribute ?? 'text';
+  if (document.getElementById('pe-read-timeout')) document.getElementById('pe-read-timeout').value = s.timeout ?? 5000;
+
+  if (document.getElementById('pe-mtap-randomize')) toggleTapOffsetRange(Boolean(s.randomizeTapOffset));
+  if (document.getElementById('pe-mwt-action')) toggleWaitTextOffsetFields(s.onFoundAction || 'continue');
+  if (document.getElementById('pe-wat-onfail')) toggleWaitTapGoto(s.onTimeoutAction || 'stop');
+  if (document.getElementById('pe-mobile-keycode')) toggleMobileKeyCustom(document.getElementById('pe-mobile-keycode').value);
+
+  // Show/hide groups
+  const allGroups = ['pg-tap','pg-type','pg-browser','pg-swipe','pg-mobile','pg-mobile-tap','pg-mobile-wait','pg-wait-and-tap','pg-mobile-key','pg-mobile-screenshot','pg-open-app','pg-close-app','pg-read-ui-element','pg-extract',
+                     'pg-condition','pg-loop','pg-api','pg-cron','pg-file','pg-ocr','pg-wait'];
+  allGroups.forEach(g => { const el = document.getElementById(g); if(el) el.style.display='none'; });
+  const show = PROP_GROUPS[s.type] || [];
+  show.forEach(g => { const el = document.getElementById(g); if(el) el.style.display='block'; });
   // Condition
   document.getElementById('pe-cond').value = s.condition ?? '';
   document.getElementById('pe-true-step').value = s.trueStep ?? '';
@@ -679,13 +751,6 @@ function showProp(s) {
   document.getElementById('pe-wait-sel').value = s.waitSelector ?? '';
   document.getElementById('pe-wait-cond').value = s.waitCondition ?? 'visible';
   document.getElementById('pe-wait-timeout').value = s.waitTimeout ?? 10000;
-
-  // Show/hide groups
-  const allGroups = ['pg-tap','pg-type','pg-browser','pg-swipe','pg-mobile','pg-extract',
-                     'pg-condition','pg-loop','pg-api','pg-cron','pg-file','pg-ocr','pg-wait'];
-  allGroups.forEach(g => { const el = document.getElementById(g); if(el) el.style.display='none'; });
-  const show = PROP_GROUPS[s.type] || [];
-  show.forEach(g => { const el = document.getElementById(g); if(el) el.style.display='block'; });
 }
 
 function saveProp(key, val) {
@@ -727,6 +792,55 @@ function saveProp(key, val) {
     console.log('[PROP DEBUG] ' + key + ' = "' + val + '"');
     console.log('[PROP DEBUG] Node data:', JSON.stringify(s));
   }
+}
+
+function toggleTapOffsetRange(enabled) {
+  const el = document.getElementById('pg-mtap-offset');
+  if (el) el.style.display = enabled ? 'block' : 'none';
+}
+
+function toggleWaitTextOffsetFields(action) {
+  const el = document.getElementById('pe-mwt-offset-group');
+  if (!el) return;
+  el.style.display = action === 'tap_offset' ? 'block' : 'none';
+}
+
+function toggleWaitTapGoto(action) {
+  const el = document.getElementById('pg-wat-goto');
+  if (!el) return;
+  el.style.display = action === 'goto' ? 'block' : 'none';
+}
+
+function toggleMobileKeyCustom(value) {
+  const el = document.getElementById('pg-mobile-key-custom');
+  if (!el) return;
+  el.style.display = value === 'custom' ? 'block' : 'none';
+}
+
+function updateWaitTapConfidence(value) {
+  const badge = document.getElementById('pe-wat-confidence-value');
+  if (badge) badge.textContent = value + '%';
+}
+
+function handleWaitTapImage(input) {
+  const file = input.files && input.files[0];
+  if (!file || selectedIdx === null) return;
+  const reader = new FileReader();
+  reader.onload = function(event) {
+    const result = event.target.result;
+    const s = project.steps[selectedIdx];
+    s.referenceImage = result;
+    const preview = document.getElementById('pe-wat-ref-preview');
+    if (preview) {
+      preview.src = result;
+      preview.style.display = 'block';
+    }
+  };
+  reader.readAsDataURL(file);
+}
+
+function pickScreenCoordinate() {
+  addLog('Screen picker belum tersedia. Gunakan koordinat manual untuk sekarang.', 'warn');
 }
 
 // ─── Delete / Duplicate ───────────────────────────────────────
@@ -2139,38 +2253,95 @@ async function runWorkflow() {
           break;
         }
 
-        case 'read-ui-element':
-        case 'mobile-find-text': {
+        case 'read-ui-element': {
           if (!stepDevice) throw new Error('Tidak ada device ADB');
-          
-          // BUG #2 FIX: Resolve variables with logging
-          const searchTxt = resolveWithLog('searchText', s.selector||s.text||'');
-          if (!searchTxt) throw new Error('Teks untuk dicari kosong');
-          
+          const selector = resolveWithLog('selectorValue', s.selectorValue || s.selector || '');
+          if (!selector) throw new Error('Selector value kosong');
+          const attribute = s.attribute || 'text';
           const xmlPath = require('path').join(require('os').tmpdir(), 'ui_dump_'+Date.now()+'.xml');
-          addLog('Step '+(i+1)+': 🔎 Cari "'+searchTxt+'"...', 'info');
+          addLog('Step '+(i+1)+': 🔎 Read UI element ['+attribute+': '+selector+']', 'info');
           const r1 = await runAdb(stepDevice, 'shell uiautomator dump /sdcard/ui_rba.xml');
           if (!r1.success) throw new Error('uiautomator dump gagal: '+r1.error);
           await wait(800);
           const r2 = await runAdb(stepDevice, 'pull /sdcard/ui_rba.xml "'+xmlPath.replace(/\\/g,'/')+'"');
           if (!r2.success) throw new Error('pull XML gagal: '+r2.error);
-          const fs4=require('fs');
+          const fs4 = require('fs');
           if (!fs4.existsSync(xmlPath)) throw new Error('XML tidak ditemukan');
           const xml = fs4.readFileSync(xmlPath,'utf8');
-          const esc4 = searchTxt.replace(/[.*+?^${}()|[\]\\]/g,'\\$&');
-          const tm = xml.match(new RegExp('text="([^"]*'+esc4+'[^"]*)"','i'));
-          if (tm) {
-            const seg = xml.substring(xml.lastIndexOf('<',xml.indexOf(tm[0])));
-            const bm  = seg.match(/bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"/);
-            if (bm) {
-              const coords={x:Math.round((+bm[1]+ +bm[3])/2),y:Math.round((+bm[2]+ +bm[4])/2)};
-              if(s.var){storeVar(s.var,tm[1]);storeVar(s.var+'_coords',coords);}
-              addLog('  ✓ Ditemukan: "'+tm[1]+'" di ('+coords.x+','+coords.y+')', 'success');
-              if(s.autoTap) await runAdb(stepDevice,'shell input tap '+coords.x+' '+coords.y);
-            }
-          } else { throw new Error('Teks "'+searchTxt+'" tidak ditemukan di UI'); }
-          try{fs4.unlinkSync(xmlPath);}catch(e){}
+          const escSelector = selector.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&');
+          const regex = new RegExp(attribute+'="([^"]*'+escSelector+'[^"]*)"','i');
+          const match = xml.match(regex);
+          if (!match) throw new Error('UI element tidak ditemukan');
+          const resultText = match[1];
+          if (s.var) storeVar(s.var, resultText);
+          addLog('  ✓ Baca '+attribute+': '+resultText, 'success');
+          try { fs4.unlinkSync(xmlPath); } catch(e) {}
           await runAdb(stepDevice,'shell rm /sdcard/ui_rba.xml');
+          break;
+        }
+
+        case 'mobile-find-text': {
+          if (!stepDevice) throw new Error('Tidak ada device ADB');
+          const searchTxt = resolveWithLog('searchText', s.waitText || s.text || s.selector || '');
+          if (!searchTxt) throw new Error('Teks untuk dicari kosong');
+          const timeout = parseInt(s.timeout, 10) || 10000;
+          const interval = parseInt(s.retryInterval, 10) || 1000;
+          const matchType = s.matchType || 'contains';
+          const caseSensitive = Boolean(s.caseSensitive);
+          const onFound = s.onFoundAction || 'none';
+          const startAt = Date.now();
+          let found = false;
+          let foundCoords = null;
+          const fs4 = require('fs');
+
+          while (!found && Date.now() - startAt < timeout) {
+            const xmlPath = require('path').join(require('os').tmpdir(), 'ui_dump_'+Date.now()+'.xml');
+            const r1 = await runAdb(stepDevice, 'shell uiautomator dump /sdcard/ui_rba.xml');
+            if (!r1.success) throw new Error('uiautomator dump gagal: '+r1.error);
+            await wait(800);
+            const r2 = await runAdb(stepDevice, 'pull /sdcard/ui_rba.xml "'+xmlPath.replace(/\\/g,'/')+'"');
+            if (!r2.success) throw new Error('pull XML gagal: '+r2.error);
+            if (!fs4.existsSync(xmlPath)) throw new Error('XML tidak ditemukan');
+            const xml = fs4.readFileSync(xmlPath,'utf8');
+            const normalized = caseSensitive ? xml : xml.toLowerCase();
+            const normalizedSearch = caseSensitive ? searchTxt : searchTxt.toLowerCase();
+            const escSearch = searchTxt.replace(/[.*+?^${}()|[\\]\\]/g,'\\$&');
+
+            if (matchType === 'exact' && normalized.includes('text="'+normalizedSearch+'"')) {
+              found = true;
+            } else if (matchType === 'contains' && normalized.includes(normalizedSearch)) {
+              found = true;
+            } else if (matchType === 'startsWith' && normalized.includes('text="'+normalizedSearch)) {
+              found = true;
+            } else if (matchType === 'regex') {
+              const regexMatch = new RegExp(searchTxt, caseSensitive ? 'g' : 'gi');
+              if (regexMatch.test(xml)) found = true;
+            }
+
+            if (found) {
+              const coordMatch = xml.match(new RegExp('bounds="\[(\d+),(\d+)\]\[(\d+),(\d+)\]"[\s\S]*?text="([^"]*'+escSearch+'[^"]*)"','i'));
+              if (coordMatch) {
+                foundCoords = { x: Math.round((+coordMatch[1] + +coordMatch[3]) / 2), y: Math.round((+coordMatch[2] + +coordMatch[4]) / 2) };
+              }
+            }
+
+            try { fs4.unlinkSync(xmlPath); } catch(e) {}
+            await runAdb(stepDevice,'shell rm /sdcard/ui_rba.xml');
+            if (!found) await wait(interval);
+          }
+
+          if (!found) throw new Error('Mobile Wait Text: "'+searchTxt+'" tidak ditemukan dalam '+timeout+'ms');
+          addLog('Step '+(i+1)+': ✓ Teks ditemukan: "'+searchTxt+'"', 'success');
+          if (s.var) storeVar(s.var, searchTxt);
+          if (onFound === 'tap_found_text' && foundCoords) {
+            addLog('  🔍 Tap found text at '+foundCoords.x+','+foundCoords.y, 'info');
+            await runAdb(stepDevice, 'shell input tap '+foundCoords.x+' '+foundCoords.y);
+          } else if (onFound === 'tap_offset') {
+            const tx = parseInt(s.tapOffsetX, 10) || 0;
+            const ty = parseInt(s.tapOffsetY, 10) || 0;
+            addLog('  🔍 Tap offset at '+tx+','+ty, 'info');
+            await runAdb(stepDevice, 'shell input tap '+tx+' '+ty);
+          }
           break;
         }
 

@@ -8,6 +8,31 @@ const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
 
+// NEW: Get correct base path for both dev and production
+function getBasePath() {
+  if (app.isPackaged) {
+    return process.resourcesPath;
+  } else {
+    return __dirname;
+  }
+}
+
+function logBinaryError(tool, message) {
+  const errMsg = `${tool} error: ${message}`;
+  console.error(errMsg);
+  if (mainWindow?.webContents) {
+    mainWindow.webContents.send('binary-error', { tool, message });
+  }
+}
+
+function resetAdbServer(adbPath, callback) {
+  exec(`"${adbPath}" kill-server`, () => {
+    exec(`"${adbPath}" start-server`, () => {
+      callback();
+    });
+  });
+}
+
 const projectsFile = path.join(app.getPath("userData"), "rba-workflows.json");
 const settingsFile  = path.join(app.getPath("userData"), "rba-settings.json");
 
@@ -61,12 +86,9 @@ class DevicePool {
         }
 
         // 3. Local project scrcpy folder (production: resourcesPath, dev: __dirname)
-        const isPackaged = app.isPackaged;
-        const basePath = isPackaged ? path.join(process.resourcesPath, '..') : __dirname;
-        const localAdb = path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'adb.exe' : 'adb');
-        candidates.push(localAdb);
-        const localAdbRoot = path.join(basePath, os.platform()==='win32' ? 'adb.exe' : 'adb');
-        candidates.push(localAdbRoot);
+        const basePath = getBasePath();
+        candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(basePath, os.platform()==='win32' ? 'adb.exe' : 'adb'));
 
         // 4. Platform default paths
         if (os.platform() === 'win32') {
@@ -80,6 +102,7 @@ class DevicePool {
         for (const cand of candidates) {
             if (cand && fs.existsSync(cand)) { this.adbPath=cand; return cand; }
         }
+        logBinaryError('adb', 'ADB tidak ditemukan. Pastikan adb.exe ada di PATH, Android SDK, atau folder scrcpy.');
         return null;
     }
 
@@ -94,7 +117,11 @@ class DevicePool {
 
     refresh() {
         try {
-            const bin = this.findAdb() || 'adb';
+            const bin = this.findAdb();
+            if (!bin) {
+                this.devices = [];
+                return this.devices;
+            }
             const out = execSync(`"${bin}" devices`, { encoding:'utf8', timeout:5000 });
             this.devices = out.split('\n').slice(1)
                 .map(l=>l.trim())
@@ -116,14 +143,14 @@ class DevicePool {
         if (settings.scrcpyPath) candidates.push(settings.scrcpyPath);
         
         // Local project scrcpy folder (production: resourcesPath, dev: __dirname)
-        const isPackaged = app.isPackaged;
-        const basePath = isPackaged ? path.join(process.resourcesPath, '..') : __dirname;
+        const basePath = getBasePath();
         candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'scrcpy.exe' : 'scrcpy'));
         candidates.push(path.join(basePath, os.platform()==='win32' ? 'scrcpy.exe' : 'scrcpy'));
 
         for (const cand of candidates) {
             if (cand && fs.existsSync(cand)) { this.scrcpyPath = cand; return cand; }
         }
+        logBinaryError('scrcpy', 'scrcpy tidak ditemukan. Pastikan scrcpy.exe ada di folder scrcpy atau PATH.');
         return null;
     }
 
@@ -154,8 +181,12 @@ app.commandLine.appendSwitch('disable-background-timer-throttling'); // CHANGED
 app.commandLine.appendSwitch('disable-renderer-backgrounding'); // CHANGED
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows'); // CHANGED
 
-const { runFlow, stopFlow, setAdbExecutor } = require('./flowEngine'); // CHANGED
+const { runFlow, stopFlow, setAdbExecutor, cleanupFlow } = require('./flowEngine'); // CHANGED
 setAdbExecutor(pool.adb.bind(pool)); // CHANGED
+
+// NEW: Remove any existing listeners to prevent accumulation
+ipcMain.removeAllListeners('run-flow');
+ipcMain.removeAllListeners('stop-flow');
 
 ipcMain.on('run-flow', async (event, flowData) => { // CHANGED
     await runFlow(flowData, event.sender);
@@ -173,7 +204,6 @@ function createWindow() {
         backgroundColor:'#080d17'
     });
     
-    // Load login first
     mainWindow.loadFile(path.join(__dirname, 'login.html'));
 }
 
@@ -317,7 +347,15 @@ ipcMain.handle("auth-check", async () => {
 // ─────────────────────────────────────────
 // APP LIFECYCLE
 // ─────────────────────────────────────────
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+    const adbPath = pool.findAdb();
+    if (adbPath) {
+        resetAdbServer(adbPath, () => {
+            console.log('ADB server reset completed');
+        });
+    }
+    createWindow();
+});
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
 });
