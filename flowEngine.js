@@ -1,11 +1,21 @@
 const { exec } = require('child_process');
+const fs = require('fs');
+const Jimp = require('jimp');
 const ScreenVerifier = require('./screenVerifier');
-const { waitForText, destroyOcrWorker } = require('./ocrReader') // NEW
+const { waitForText, destroyOcrWorker } = require('./ocrReader');
 
 let isRunning = false;
 let currentSender = null;
 let adbExecutor = null;
 let screenVerifier = null;
+
+const screenshotCache = {
+  device: null,
+  timestamp: 0,
+  image: null
+};
+const SCREENSHOT_CACHE_TTL = 300; // milliseconds
+const lastFoundPositions = new Map();
 
 function delay(ms) {
   return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
@@ -140,11 +150,224 @@ function getNextNode(edgeMap, id) {
   return edgeMap[id]?.[0] || null;
 }
 
-async function adbExec(device, command) {
+async function adbExec(device, command, options = {}) {
   return new Promise(resolve => {
     const execFn = getAdbExecutor();
-    execFn(command, device, resolve);
+    execFn(command, device, resolve, options);
   });
+}
+
+function isValidRegion(region) {
+  return region && region.width > 0 && region.height > 0 && region.x >= 0 && region.y >= 0;
+}
+
+function expandRegion(region, padding = 50, maxWidth = Infinity, maxHeight = Infinity) {
+  if (!region) return null;
+  return {
+    x: Math.max(0, region.x - padding),
+    y: Math.max(0, region.y - padding),
+    width: Math.min(maxWidth - 1, region.width + padding * 2),
+    height: Math.min(maxHeight - 1, region.height + padding * 2)
+  };
+}
+
+async function captureScreen(device, options = {}) {
+  const result = await adbExec(device, 'exec-out screencap -p', {
+    encoding: 'buffer',
+    timeout: options.timeout || 15000,
+    maxBuffer: options.maxBuffer || 150 * 1024 * 1024
+  });
+
+  if (!result.success) {
+    return { success: false, error: result.error || 'ADB screenshot failed' };
+  }
+
+  const buffer = Buffer.isBuffer(result.output) ? result.output : Buffer.from(result.output, 'binary');
+  try {
+    const image = await Jimp.read(buffer);
+    return { success: true, image };
+  } catch (err) {
+    return { success: false, error: err.message || 'Failed to parse screenshot' };
+  }
+}
+
+async function getScreenImage(device, forceRefresh = false, region = null) {
+  const now = Date.now();
+  if (!forceRefresh && screenshotCache.image && screenshotCache.device === device && (now - screenshotCache.timestamp) < SCREENSHOT_CACHE_TTL) {
+    const cloned = screenshotCache.image.clone();
+    if (region && isValidRegion(region)) {
+      return { success: true, image: cloned.crop(region.x, region.y, region.width, region.height) };
+    }
+    return { success: true, image: cloned };
+  }
+
+  const capture = await captureScreen(device, { timeout: 12000 });
+  if (!capture.success) return capture;
+
+  screenshotCache.device = device;
+  screenshotCache.timestamp = Date.now();
+  screenshotCache.image = capture.image.clone();
+
+  if (region && isValidRegion(region)) {
+    return { success: true, image: capture.image.crop(region.x, region.y, region.width, region.height) };
+  }
+  return { success: true, image: capture.image };
+}
+
+function invalidateScreenCache(device) {
+  if (screenshotCache.device === device) {
+    screenshotCache.device = null;
+    screenshotCache.timestamp = 0;
+    screenshotCache.image = null;
+  }
+}
+
+async function loadTemplateImage(data) {
+  if (!data) return null;
+  try {
+    if (typeof data === 'string') {
+      if (data.startsWith('data:image')) {
+        const base64 = data.split(',')[1];
+        return await Jimp.read(Buffer.from(base64, 'base64'));
+      }
+      if (fs.existsSync(data)) {
+        return await Jimp.read(data);
+      }
+      const buffer = Buffer.from(data, 'base64');
+      return await Jimp.read(buffer);
+    }
+    return null;
+  } catch (err) {
+    return null;
+  }
+}
+
+async function findTemplateOnImage(screenImage, templateImage, threshold = 0.85, step = 4) {
+  const screenW = screenImage.bitmap.width;
+  const screenH = screenImage.bitmap.height;
+  const tmplW = templateImage.bitmap.width;
+  const tmplH = templateImage.bitmap.height;
+
+  if (screenW < tmplW || screenH < tmplH) {
+    return { found: false, confidence: 0, x: 0, y: 0, width: tmplW, height: tmplH, centerX: 0, centerY: 0 };
+  }
+
+  const sampleStep = Math.max(1, Math.floor(Math.min(tmplW, tmplH) / 12));
+  const samples = [];
+  for (let ty = 0; ty < tmplH; ty += sampleStep) {
+    for (let tx = 0; tx < tmplW; tx += sampleStep) {
+      const rgba = Jimp.intToRGBA(templateImage.getPixelColor(tx, ty));
+      samples.push({ x: tx, y: ty, r: rgba.r, g: rgba.g, b: rgba.b });
+    }
+  }
+  const maxAllowedDiff = (1 - threshold) * samples.length * 255 * 3;
+
+  let bestScore = 0;
+  let bestX = 0;
+  let bestY = 0;
+  const outerStep = Math.max(1, Math.min(step, Math.floor(Math.min(tmplW, tmplH) / 4)));
+
+  for (let sy = 0; sy <= screenH - tmplH; sy += outerStep) {
+    for (let sx = 0; sx <= screenW - tmplW; sx += outerStep) {
+      let totalDiff = 0;
+      let earlyExit = false;
+      for (const px of samples) {
+        const rgba = Jimp.intToRGBA(screenImage.getPixelColor(sx + px.x, sy + px.y));
+        totalDiff += Math.abs(px.r - rgba.r) + Math.abs(px.g - rgba.g) + Math.abs(px.b - rgba.b);
+        if (totalDiff > maxAllowedDiff) {
+          earlyExit = true;
+          break;
+        }
+      }
+      if (earlyExit) continue;
+
+      const score = 1 - totalDiff / (samples.length * 255 * 3);
+      if (score > bestScore) {
+        bestScore = score;
+        bestX = sx;
+        bestY = sy;
+        if (bestScore >= 0.98) break;
+      }
+    }
+    if (bestScore >= 0.98) break;
+  }
+
+  const found = bestScore >= threshold;
+  return {
+    found,
+    confidence: bestScore,
+    x: bestX,
+    y: bestY,
+    width: tmplW,
+    height: tmplH,
+    centerX: bestX + Math.floor(tmplW / 2),
+    centerY: bestY + Math.floor(tmplH / 2)
+  };
+}
+
+async function findTemplate(device, templateData, options = {}) {
+  const {
+    threshold = 0.85,
+    nodeId = null,
+    searchRegion = null,
+    smartSearchRadius = 120,
+    step = 4,
+    forceFullScan = false
+  } = options;
+
+  const templateImage = await loadTemplateImage(templateData);
+  if (!templateImage) {
+    return { found: false, confidence: 0, error: 'Invalid template image' };
+  }
+
+  const screenRegion = isValidRegion(searchRegion) ? searchRegion : null;
+
+  // 1. Try last known position first
+  if (!forceFullScan && nodeId && lastFoundPositions.has(nodeId)) {
+    const previous = lastFoundPositions.get(nodeId);
+    const smartRegion = expandRegion(previous, smartSearchRadius);
+    const capture = await getScreenImage(device, false, smartRegion);
+    if (capture.success) {
+      const localMatch = await findTemplateOnImage(capture.image, templateImage, threshold, step);
+      if (localMatch.found) {
+        const absoluteX = smartRegion.x + localMatch.x;
+        const absoluteY = smartRegion.y + localMatch.y;
+        lastFoundPositions.set(nodeId, { x: absoluteX, y: absoluteY, width: templateImage.bitmap.width, height: templateImage.bitmap.height });
+        return { ...localMatch, x: absoluteX, y: absoluteY, centerX: absoluteX + Math.floor(templateImage.bitmap.width / 2), centerY: absoluteY + Math.floor(templateImage.bitmap.height / 2) };
+      }
+    }
+  }
+
+  // 2. Full region scan
+  const capture = await getScreenImage(device, true, screenRegion);
+  if (!capture.success) {
+    return { found: false, confidence: 0, error: capture.error };
+  }
+
+  const match = await findTemplateOnImage(capture.image, templateImage, threshold, step);
+  if (!match.found) {
+    return match;
+  }
+
+  const absoluteX = (screenRegion ? screenRegion.x : 0) + match.x;
+  const absoluteY = (screenRegion ? screenRegion.y : 0) + match.y;
+  if (nodeId) {
+    lastFoundPositions.set(nodeId, { x: absoluteX, y: absoluteY, width: templateImage.bitmap.width, height: templateImage.bitmap.height });
+  }
+
+  return {
+    ...match,
+    x: absoluteX,
+    y: absoluteY,
+    centerX: absoluteX + Math.floor(templateImage.bitmap.width / 2),
+    centerY: absoluteY + Math.floor(templateImage.bitmap.height / 2)
+  };
+}
+
+function clearTemplateCache(nodeId) {
+  if (nodeId) {
+    lastFoundPositions.delete(nodeId);
+  }
 }
 
 function normalizeNumber(value) {
@@ -213,32 +436,102 @@ async function executeNode(node, sender, device) {
       return { success: true };
     }
 
-    // NEW: Mobile Wait Text — tunggu teks muncul via OCR
-    if (type === 'mobile-find-text' || type === 'wait_for_text') { // NEW
-      const result = await waitForText( // NEW
-        device, // NEW
-        data.waitText || data.text || '', // NEW
-        { // NEW
-          timeout:       data.waitTimeout  || 30000, // NEW
-          interval:      data.waitInterval || 2000, // NEW
-          caseSensitive: false // NEW
-        }, // NEW
-        sender // NEW
-      ) // NEW
-      if (!result.found) { // NEW
-        const onFail = data.waitOnFail || 'stop' // NEW
-        if (onFail === 'stop') { // NEW
-          isRunning = false // NEW
-          sendLog(sender, 'error', `Text not found: "${data.waitText}" — flow stopped`) // NEW
-          return // NEW
-        } // NEW
-        if (onFail === 'recovery') { // NEW
-          await runRecovery(RECOVERY_PLANS['tap-failed'], node, sender, device) // NEW
-        } // NEW
-        sendLog(sender, 'warn', `Text not found: "${data.waitText}" — skipping`) // NEW
-      } // NEW
-      return // NEW
-    } // NEW
+    // NEW: Mobile Wait Text / Find Text — OCR-based text detection with polling
+    if (type === 'mobile-find-text' || type === 'wait_for_text' || type === 'mobile-wait-text') {
+      const {
+        waitText = data.text || data.targetText || '',
+        timeout = 30000,
+        retryInterval = 2000,
+        caseSensitive = false,
+        matchType = 'contains',  // contains, exact, startsWith, regex
+        ocrRegionX = 0,
+        ocrRegionY = 0,
+        ocrRegionW = 0,
+        ocrRegionH = 0,
+        ocrLanguage = 'ind+eng',
+        onFoundAction = 'continue',  // continue, tap, tap_offset
+        tapOffsetX = null,
+        tapOffsetY = null,
+        onTimeoutAction = 'stop',
+        gotoStepIndex = null,
+        outputVariable = null,
+        delayBefore = 0
+      } = data;
+
+      if (!waitText) {
+        sendLog(sender, 'error', 'Mobile Wait Text: No target text provided');
+        return { success: false, error: 'No target text' };
+      }
+
+      if (delayBefore > 0) await delay(delayBefore);
+
+      sendLog(sender, 'info', `[Wait Text] Starting OCR polling for: "${waitText}" (timeout: ${timeout}ms)`);
+
+      const startTime = Date.now();
+      let attempt = 0;
+
+      while (isRunning) {
+        const elapsed = Date.now() - startTime;
+
+        if (elapsed >= timeout) {
+          sendLog(sender, 'warn', `[Wait Text] Timeout after ${attempt} attempts (${elapsed}ms)`);
+
+          if (outputVariable) setVariable?.(outputVariable, 'timeout');
+
+          if (onTimeoutAction === 'stop') {
+            isRunning = false;
+            return { success: false, error: `Text not found: "${waitText}"` };
+          } else if (onTimeoutAction === 'skip') {
+            sendLog(sender, 'info', `[Wait Text] Skipping due to timeout`);
+            return { success: true, skipped: true };
+          } else if (onTimeoutAction === 'goto' && gotoStepIndex !== null) {
+            sendLog(sender, 'info', `[Wait Text] Going to step ${gotoStepIndex}`);
+            return { success: true, gotoStep: gotoStepIndex };
+          }
+          break;
+        }
+
+        attempt++;
+        sendLog(sender, 'info', `[Wait Text] Attempt #${attempt} (${elapsed}ms elapsed)`);
+
+        try {
+          // Use waitForText from ocrReader for OCR
+          const result = await waitForText(
+            device,
+            waitText,
+            {
+              timeout: Math.min(retryInterval, 5000),
+              interval: 500,
+              caseSensitive: caseSensitive,
+              matchType: matchType
+            },
+            sender
+          );
+
+          if (result && result.found) {
+            sendLog(sender, 'success', `[Wait Text] Text found: "${waitText}" after ${attempt} attempts`);
+
+            if (outputVariable) setVariable?.(outputVariable, 'found');
+
+            // Handle found action
+            if (onFoundAction === 'tap' && tapOffsetX !== null && tapOffsetY !== null) {
+              await adbExec(device, `shell input tap ${tapOffsetX} ${tapOffsetY}`);
+              sendLog(sender, 'success', `[Wait Text] Tapped at offset (${tapOffsetX}, ${tapOffsetY})`);
+            }
+
+            return { success: true, foundText: waitText };
+          }
+
+        } catch (err) {
+          sendLog(sender, 'warn', `[Wait Text] OCR attempt error: ${err.message}`);
+        }
+
+        // Wait before next poll
+        await delay(retryInterval);
+      }
+
+      return { success: false, error: 'Wait Text polling ended' };
+    }
 
     // NEW: Mobile Type Text
     if (type === 'mobile-type') { // NEW
@@ -282,29 +575,166 @@ async function executeNode(node, sender, device) {
       return { success: true }; // NEW
     } // NEW
 
-    // NEW: Wait & Tap
-    if (type === 'wait-and-tap') { // NEW
-      const result = await waitForText( // NEW
-        device, // NEW
-        data.watText || '', // NEW
-        { timeout: data.watTimeout || 15000, interval: 2000 }, // NEW
-        sender // NEW
-      ) // NEW
-      if (!result.found) { // NEW
-        if ((data.watOnFail || 'stop') === 'stop') { // NEW
-          isRunning = false // NEW
-          sendLog(sender,'error',`Wait & Tap: "${data.watText}" tidak muncul — stop`) // NEW
-          return { success:false, error:'Wait text not found' } // NEW
-        } // NEW
-        sendLog(sender,'warn',`Wait & Tap: timeout, tap tetap dijalankan`) // NEW
-      } // NEW
-      await delay(data.watDelay || 500) // NEW
-      await adbExec(device, `shell input tap ${data.watX || 540} ${data.watY || 960}`) // NEW
-      sendLog(sender,'success',`Wait & Tap selesai: tap ${data.watX || 540},${data.watY || 960}`) // NEW
-      return { success: true }; // NEW
-    } // NEW
+    // NEW: Wait & Tap — Enhanced polling version with image matching
+    if (type === 'wait-and-tap') {
+      const {
+        referenceImage,
+        referenceImagePath,
+        referenceImageRegionX = 0,
+        referenceImageRegionY = 0,
+        referenceImageRegionW = 0,
+        referenceImageRegionH = 0,
+        tapX,
+        tapY,
+        timeout = 30000,
+        retryInterval = 1000,
+        confidence = 80,
+        randomizeTapOffset = false,
+        offsetRange = 5,
+        delayBefore = 0,
+        onTimeoutAction = 'stop',
+        gotoStepIndex = null,
+        outputVariable = null
+      } = data;
+
+      if (!referenceImage && !referenceImagePath) {
+        sendLog(sender, 'error', 'Wait & Tap: No reference image provided');
+        return { success: false, error: 'No reference image' };
+      }
+
+      if (delayBefore > 0) await delay(delayBefore);
+
+      const templateSource = referenceImage || null;
+      const threshold = Math.max(0.1, Math.min(1, confidence / 100));
+      const searchRegion = isValidRegion({ x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH })
+        ? { x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH }
+        : null;
+      const nodeId = node.id || null;
+      const startTime = Date.now();
+      let attempt = 0;
+
+      sendLog(sender, 'info', `[Wait & Tap] Starting visual wait (timeout: ${timeout}ms, interval: ${retryInterval}ms, threshold: ${(threshold*100).toFixed(0)}%)`);
+
+      while (isRunning) {
+        const elapsed = Date.now() - startTime;
+        if (elapsed >= timeout) {
+          sendLog(sender, 'warn', `[Wait & Tap] Timeout after ${attempt} attempts (${elapsed}ms)`);
+          if (outputVariable) setVariable?.(outputVariable, 'timeout');
+          if (onTimeoutAction === 'stop') {
+            isRunning = false;
+            return { success: false, error: 'Wait & Tap timeout' };
+          }
+          if (onTimeoutAction === 'skip') {
+            sendLog(sender, 'info', '[Wait & Tap] Skipping due to timeout');
+            return { success: true, skipped: true };
+          }
+          if (onTimeoutAction === 'goto' && gotoStepIndex !== null) {
+            sendLog(sender, 'info', `[Wait & Tap] Going to step ${gotoStepIndex}`);
+            return { success: true, gotoStep: gotoStepIndex };
+          }
+          break;
+        }
+
+        attempt++;
+        sendLog(sender, 'info', `[Wait & Tap] Attempt #${attempt} (${elapsed}ms elapsed)`);
+
+        try {
+          const match = await findTemplate(device, templateSource, {
+            threshold,
+            nodeId,
+            searchRegion,
+            smartSearchRadius: 120,
+            step: Math.max(2, Math.floor(Math.min(referenceImageRegionW || 100, referenceImageRegionH || 100) / 8)),
+            forceFullScan: attempt % 5 === 0
+          });
+
+          if (!match.found) {
+            sendLog(sender, 'info', `[Wait & Tap] Not found yet (best confidence ${(match.confidence*100).toFixed(1)}%)`);
+            await delay(retryInterval);
+            continue;
+          }
+
+          let targetX = match.centerX;
+          let targetY = match.centerY;
+          if (typeof tapX === 'number' && typeof tapY === 'number') {
+            targetX = tapX;
+            targetY = tapY;
+          }
+          if (randomizeTapOffset && offsetRange > 0) {
+            targetX += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+            targetY += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+          }
+
+          const tapResult = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
+          invalidateScreenCache(device);
+          if (!tapResult.success) {
+            sendLog(sender, 'error', `[Wait & Tap] Tap failed: ${tapResult.error}`);
+            return { success: false, error: 'Tap failed after match' };
+          }
+
+          if (outputVariable) setVariable?.(outputVariable, 'found');
+          sendLog(sender, 'success', `[Wait & Tap] Found and tapped at (${targetX},${targetY}) — confidence ${(match.confidence*100).toFixed(1)}%`);
+          return { success: true, elapsed, attempts: attempt, tapX: targetX, tapY: targetY, foundAt: match };
+        } catch (err) {
+          sendLog(sender, 'error', `[Wait & Tap] Error: ${err.message}`);
+          await delay(retryInterval);
+        }
+      }
+
+      return { success: false, error: 'Wait & Tap aborted' };
+    }
 
     if (type === 'tap' || type === 'mobile-tap' || type === 'click') {
+      const {
+        referenceImage,
+        referenceImagePath,
+        referenceImageRegionX = 0,
+        referenceImageRegionY = 0,
+        referenceImageRegionW = 0,
+        referenceImageRegionH = 0,
+        confidence = 80,
+        randomizeTapOffset = false,
+        offsetRange = 5
+      } = data;
+
+      if (referenceImage || referenceImagePath) {
+        const templateSource = referenceImage || null;
+        const threshold = Math.max(0.1, Math.min(1, confidence / 100));
+        const searchRegion = isValidRegion({ x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH })
+          ? { x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH }
+          : null;
+        const nodeId = node.id || null;
+        const match = await findTemplate(device, templateSource, {
+          threshold,
+          nodeId,
+          searchRegion,
+          smartSearchRadius: 120,
+          step: Math.max(2, Math.floor(Math.min(referenceImageRegionW || 100, referenceImageRegionH || 100) / 8)),
+          forceFullScan: true
+        });
+
+        if (!match.found) {
+          sendLog(sender, 'warn', `[Tap] Reference image not found (best confidence ${(match.confidence * 100).toFixed(1)}%)`);
+          return { success: false, error: 'Reference image not found' };
+        }
+        let targetX = match.centerX;
+        let targetY = match.centerY;
+        if (randomizeTapOffset && offsetRange > 0) {
+          targetX += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+          targetY += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+        }
+        const result = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
+        invalidateScreenCache(device);
+        if (!result.success) {
+          sendLog(sender, 'error', `ADB tap failed: ${result.error}`);
+          const recoveryPlan = RECOVERY_PLANS['tap-failed'];
+          const recoveryResult = await runRecovery(recoveryPlan, node, sender, device);
+          return recoveryResult;
+        }
+        sendLog(sender, 'success', `Tap at matched position ${targetX},${targetY}`);
+        return { success: true };
+      }
+
       if (tapX == null || tapY == null) {
         sendLog(sender, 'warn', 'Tap node missing coordinates');
         return { success: false, error: 'Missing coordinates' };
@@ -312,7 +742,6 @@ async function executeNode(node, sender, device) {
       const result = await adbExec(device, `shell input tap ${tapX} ${tapY}`);
       if (!result.success) {
         sendLog(sender, 'error', `ADB tap failed: ${result.error}`);
-        // Try recovery for tap failure
         const recoveryPlan = RECOVERY_PLANS['tap-failed'];
         const recoveryResult = await runRecovery(recoveryPlan, node, sender, device);
         return recoveryResult;

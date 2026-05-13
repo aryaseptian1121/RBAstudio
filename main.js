@@ -63,17 +63,9 @@ class DevicePool {
     findAdb() {
         if (this.adbPath) return this.adbPath;
         const candidates = [];
-        
-        // 1. Try which (macOS/Linux) or where (Windows)
-        try {
-            const cmd = os.platform()==='win32' ? 'where adb' : 'which adb';
-            const result = execSync(cmd, { stdio:['ignore','pipe','ignore'], encoding:'utf8' });
-            const found = result.trim().split(/\r?\n/)[0];
-            if (found) candidates.push(found);
-        } catch(e){}
-        
-        // 2. Config from preferences or env
         const settings = loadSettings();
+
+        // 1. Explicit settings, env, or SDK locations first
         if (settings.adbPath) candidates.push(settings.adbPath);
         const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
         if (androidHome) {
@@ -85,32 +77,79 @@ class DevicePool {
             }
         }
 
-        // 3. Local project scrcpy folder (production: resourcesPath, dev: __dirname)
+        // 2. Known macOS/Homebrew defaults
+        if (os.platform() === 'darwin') {
+            candidates.push('/opt/homebrew/bin/adb');
+            candidates.push('/usr/local/bin/adb');
+            candidates.push('/usr/local/Cellar/android-platform-tools/35.0.2/platform-tools/adb');
+            candidates.push(path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'));
+            candidates.push(path.join(os.homedir(), 'Android', 'sdk', 'platform-tools', 'adb'));
+        }
+
+        // 3. Local project and bundled resources
         const basePath = getBasePath();
         candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'adb.exe' : 'adb'));
         candidates.push(path.join(basePath, os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(process.resourcesPath || basePath, 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(process.resourcesPath || basePath, 'resources', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(process.resourcesPath || basePath, 'assets', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
 
-        // 4. Platform default paths
+        // 4. Standard PATH lookups
+        try {
+            const cmd = os.platform()==='win32' ? 'where adb' : 'which adb';
+            const result = execSync(cmd, { stdio:['ignore','pipe','ignore'], encoding:'utf8' });
+            const found = result.trim().split(/\r?\n/)[0];
+            if (found) candidates.push(found);
+        } catch(e){}
+
+        // 5. macOS/Linux login shell PATH fallback
+        if (os.platform() !== 'win32') {
+            try {
+                const shell = process.env.SHELL || '/bin/zsh';
+                const shellPath = execSync(`${shell} -l -c "which adb"`, { stdio:['ignore','pipe','ignore'], encoding:'utf8', timeout:5000 }).toString().trim();
+                if (shellPath) candidates.push(shellPath);
+            } catch(e){}
+        }
+
         if (os.platform() === 'win32') {
             candidates.push(path.join(os.homedir(),'AppData','Local','Android','Sdk','platform-tools','adb.exe'));
-            // Fallback to userData path
             candidates.push(path.join(app.getPath('userData'), 'adb', 'adb.exe'));
         } else {
             candidates.push('/usr/local/bin/adb', '/usr/bin/adb');
         }
 
-        for (const cand of candidates) {
-            if (cand && fs.existsSync(cand)) { this.adbPath=cand; return cand; }
+        const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
+        for (const cand of uniqueCandidates) {
+            try {
+                if (fs.existsSync(cand)) {
+                    execSync(`"${cand}" version`, { timeout: 3000, stdio:'pipe' });
+                    this.adbPath = cand;
+                    console.log(`[ADB] Ditemukan di: ${cand}`);
+                    return cand;
+                }
+            } catch (_) {
+                continue;
+            }
         }
-        logBinaryError('adb', 'ADB tidak ditemukan. Pastikan adb.exe ada di PATH, Android SDK, atau folder scrcpy.');
+
+        this.adbPath = null;
+        logBinaryError('adb', 'ADB tidak ditemukan. Pastikan adb tersedia di PATH, Android SDK, atau install dengan Homebrew.');
         return null;
     }
 
-    adb(args, device, cb) {
-        const bin = this.findAdb() || 'adb';
+    adb(args, device, cb, options = {}) {
+        const bin = this.findAdb();
+        if (!bin) {
+            return cb({ success:false, output:'', error:'ADB tidak ditemukan. Pastikan adb tersedia di PATH atau Android SDK.' });
+        }
         const dFlag = device ? `-s "${device}"` : '';
         const cmd = `"${bin}" ${dFlag} ${args}`;
-        exec(cmd, { timeout: 30000, maxBuffer: 50*1024*1024, encoding:'utf8' }, (err, stdout, stderr) => {
+        const execOptions = {
+            timeout: options.timeout || 30000,
+            maxBuffer: options.maxBuffer || 50*1024*1024,
+            encoding: options.encoding || 'utf8'
+        };
+        exec(cmd, execOptions, (err, stdout, stderr) => {
             cb({ success:!err, output:stdout||'', error:err?.message||stderr||'' });
         });
     }
@@ -241,6 +280,32 @@ ipcMain.handle("adb-info", ()=>{
     return { found:!!adb, path:adb||'Not found', devices };
 });
 
+ipcMain.handle('adb:get-screen-size', async (e, { device } = {}) => {
+    const bin = pool.findAdb();
+    if (!bin) return { success:false, error:'ADB tidak ditemukan' };
+    const dFlag = device ? `-s "${device}"` : '';
+    try {
+        const output = execSync(`"${bin}" ${dFlag} shell wm size`, { encoding:'utf8', timeout:10000 });
+        const match = output.match(/(\d+)x(\d+)/);
+        if (!match) return { success:false, error:'Tidak dapat membaca ukuran layar device' };
+        return { success:true, width: parseInt(match[1],10), height: parseInt(match[2],10) };
+    } catch (err) {
+        return { success:false, error: err.message || String(err) };
+    }
+});
+
+ipcMain.handle('adb:screenshot', async (e, { device } = {}) => {
+    const bin = pool.findAdb();
+    if (!bin) return { success:false, error:'ADB tidak ditemukan' };
+    const dFlag = device ? `-s "${device}"` : '';
+    try {
+        const buffer = execSync(`"${bin}" ${dFlag} exec-out screencap -p`, { encoding:'buffer', timeout:30000, maxBuffer:100*1024*1024 });
+        return { success:true, imageBase64: buffer.toString('base64') };
+    } catch (err) {
+        return { success:false, error: err.message || String(err) };
+    }
+});
+
 // Open file dialog
 ipcMain.handle("open-file-dialog", async (e, opts)=>{
     const res = await dialog.showOpenDialog(opts||{});
@@ -342,6 +407,63 @@ ipcMain.handle("auth-check", async () => {
         authenticated: isAuthenticated, 
         user: currentUser 
     };
+});
+
+// ─────────────────────────────────────────
+// REFERENCE IMAGE PERSISTENCE (Phase 1)
+// ─────────────────────────────────────────
+
+// Save reference image (base64 PNG) to disk for reuse across sessions
+ipcMain.handle('save-reference-image', async (event, { nodeId, base64, filename }) => {
+  try {
+    const saveDir = path.join(app.getPath('userData'), 'reference_images');
+    fs.mkdirSync(saveDir, { recursive: true });
+    
+    const filePath = path.join(saveDir, filename);
+    const buffer = Buffer.from(base64, 'base64');
+    fs.writeFileSync(filePath, buffer);
+    
+    console.log(`[Reference Image] Saved: ${filePath}`);
+    return { success: true, filePath, filename };
+  } catch (err) {
+    console.error('[Reference Image] Save error:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+// Load reference image from disk (for persisting across app restarts)
+ipcMain.handle('load-reference-image', async (event, { filePath }) => {
+  try {
+    if (!fs.existsSync(filePath)) {
+      return { success: false, error: 'File tidak ditemukan' };
+    }
+    const buffer = fs.readFileSync(filePath);
+    const base64 = buffer.toString('base64');
+    return { success: true, base64 };
+  } catch (err) {
+    console.error('[Reference Image] Load error:', err.message);
+    return { success: false, error: err.message };
+  }
+});
+
+// List all saved reference images for node
+ipcMain.handle('list-reference-images', async (event, { nodeId }) => {
+  try {
+    const saveDir = path.join(app.getPath('userData'), 'reference_images');
+    if (!fs.existsSync(saveDir)) return { success: true, images: [] };
+    
+    const files = fs.readdirSync(saveDir).filter(f => f.startsWith('ref_'));
+    const images = files.map(f => ({
+      filename: f,
+      filePath: path.join(saveDir, f),
+      size: fs.statSync(path.join(saveDir, f)).size
+    }));
+    
+    return { success: true, images };
+  } catch (err) {
+    console.error('[Reference Image] List error:', err.message);
+    return { success: false, error: err.message };
+  }
 });
 
 // ─────────────────────────────────────────

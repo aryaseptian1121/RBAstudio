@@ -680,7 +680,8 @@ function showProp(s) {
   if (document.getElementById('pe-mwt-offset-y')) document.getElementById('pe-mwt-offset-y').value = s.tapOffsetY ?? 0;
   if (document.getElementById('pe-mwt-interval')) document.getElementById('pe-mwt-interval').value = s.retryInterval ?? 1000;
   if (document.getElementById('pe-wat-delay')) document.getElementById('pe-wat-delay').value = s.delayBefore ?? 500;
-  if (document.getElementById('pe-wat-timeout')) document.getElementById('pe-wat-timeout').value = s.timeout ?? 10000;
+  if (document.getElementById('pe-wat-timeout')) document.getElementById('pe-wat-timeout').value = s.timeout ?? 30000;
+  if (document.getElementById('pe-wat-retry-interval')) document.getElementById('pe-wat-retry-interval').value = s.retryInterval ?? 1000;
   if (document.getElementById('pe-wat-x')) document.getElementById('pe-wat-x').value = s.tapX ?? 0;
   if (document.getElementById('pe-wat-y')) document.getElementById('pe-wat-y').value = s.tapY ?? 0;
   if (document.getElementById('pe-wat-confidence')) document.getElementById('pe-wat-confidence').value = s.confidence ?? 80;
@@ -691,9 +692,24 @@ function showProp(s) {
   if (document.getElementById('pe-wat-region-h')) document.getElementById('pe-wat-region-h').value = s.searchRegionH ?? 0;
   if (document.getElementById('pe-wat-randomize')) document.getElementById('pe-wat-randomize').checked = Boolean(s.randomizeTapOffset);
   if (document.getElementById('pe-wat-offset')) document.getElementById('pe-wat-offset').value = s.offsetRange ?? 5;
+  if (document.getElementById('pe-wat-offset-display')) document.getElementById('pe-wat-offset-display').textContent = (s.offsetRange ?? 5);
   if (document.getElementById('pe-wat-onfail')) document.getElementById('pe-wat-onfail').value = s.onTimeoutAction ?? 'stop';
-  if (document.getElementById('pe-wat-goto-step')) document.getElementById('pe-wat-goto-step').value = s.gotoStep ?? '';
-  if (document.getElementById('pe-wat-retry-count')) document.getElementById('pe-wat-retry-count').value = s.retryCount ?? 3;
+  if (document.getElementById('pe-wat-goto-step')) document.getElementById('pe-wat-goto-step').value = s.gotoStepIndex ?? '';
+  if (document.getElementById('pe-wat-output-var')) document.getElementById('pe-wat-output-var').value = s.outputVariable ?? '';
+  if (document.getElementById('pe-wat-comment')) document.getElementById('pe-wat-comment').value = s.comment ?? '';
+  
+  // Handle reference image preview
+  if (s.referenceImage) {
+    const preview = document.getElementById('pe-wat-ref-preview');
+    const empty = document.getElementById('pe-wat-ref-empty');
+    if (preview) {
+      preview.src = typeof s.referenceImage === 'string' && s.referenceImage.startsWith('data:') 
+        ? s.referenceImage 
+        : ('data:image/png;base64,' + s.referenceImage);
+      preview.style.display = 'block';
+    }
+    if (empty) empty.style.display = 'none';
+  }
   if (document.getElementById('pe-mobile-keycode')) document.getElementById('pe-mobile-keycode').value = s.keyCode ?? '3';
   if (document.getElementById('pe-mobile-key-custom')) document.getElementById('pe-mobile-key-custom').value = s.customKeyCode ?? 0;
   if (document.getElementById('pe-mobile-key-long')) document.getElementById('pe-mobile-key-long').checked = Boolean(s.longPress);
@@ -715,6 +731,7 @@ function showProp(s) {
 
   if (document.getElementById('pe-mtap-randomize')) toggleTapOffsetRange(Boolean(s.randomizeTapOffset));
   if (document.getElementById('pe-mwt-action')) toggleWaitTextOffsetFields(s.onFoundAction || 'continue');
+  if (document.getElementById('pe-wat-randomize')) toggleWaitTapOffsetRange(Boolean(s.randomizeTapOffset));
   if (document.getElementById('pe-wat-onfail')) toggleWaitTapGoto(s.onTimeoutAction || 'stop');
   if (document.getElementById('pe-mobile-keycode')) toggleMobileKeyCustom(document.getElementById('pe-mobile-keycode').value);
 
@@ -835,12 +852,559 @@ function handleWaitTapImage(input) {
       preview.src = result;
       preview.style.display = 'block';
     }
+    const empty = document.getElementById('pe-wat-ref-empty');
+    if (empty) empty.style.display = 'none';
   };
   reader.readAsDataURL(file);
 }
 
-function pickScreenCoordinate() {
-  addLog('Screen picker belum tersedia. Gunakan koordinat manual untuk sekarang.', 'warn');
+function toggleWaitTapOffsetRange(checked) {
+  const el = document.getElementById('pg-wat-offset-range');
+  if (el) el.style.display = checked ? 'block' : 'none';
+}
+
+function toggleWaitTapGoto(value) {
+  const el = document.getElementById('pg-wat-goto');
+  if (el) el.style.display = value === 'goto' ? 'block' : 'none';
+}
+
+async function pickScreenCoordinate(mode='point') {
+  if (selectedIdx === null) {
+    addLog('Pilih node terlebih dahulu sebelum menggunakan screen picker.', 'warn');
+    return;
+  }
+  const step = project.steps[selectedIdx];
+  const deviceId = step.deviceId || getActiveAdbDevice();
+  if (!deviceId) {
+    addLog('Tidak ada device ADB aktif. Pilih device di selector atau isi Device ID.', 'warn');
+    return;
+  }
+
+  const sizeResp = await ipcRenderer.invoke('adb:get-screen-size', { device: deviceId });
+  if (!sizeResp.success) {
+    addLog('Gagal membaca ukuran layar device: ' + sizeResp.error, 'error');
+    return;
+  }
+
+  const shotResp = await ipcRenderer.invoke('adb:screenshot', { device: deviceId });
+  if (!shotResp.success) {
+    addLog('Gagal mengambil screenshot device: ' + shotResp.error, 'error');
+    return;
+  }
+
+  const ctx = {
+    mode,
+    step,
+    deviceId,
+    deviceSize: { width: sizeResp.width, height: sizeResp.height },
+    imageSrc: 'data:image/png;base64,' + shotResp.imageBase64
+  };
+
+  showScreenPickerModal(ctx);
+}
+
+function getActiveAdbDevice() {
+  const selector = document.getElementById('device-selector');
+  if (!selector) return '';
+  const device = selector.value;
+  return device && device !== 'No ADB Device' ? device : '';
+}
+
+function setInputValue(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.value = value;
+}
+
+function saveScreenPickerResult(result) {
+  if (selectedIdx === null) return;
+  const step = project.steps[selectedIdx];
+  if (!step) return;
+  const deviceId = step.deviceId || getActiveAdbDevice();
+
+  const applyPoint = (x, y) => {
+    if (step.type === 'mobile-tap') {
+      saveProp('mx', x);
+      saveProp('my', y);
+      setInputValue('pe-mtap-x', x);
+      setInputValue('pe-mtap-y', y);
+    } else if (step.type === 'wait-and-tap') {
+      saveProp('tapX', x);
+      saveProp('tapY', y);
+      setInputValue('pe-wat-x', x);
+      setInputValue('pe-wat-y', y);
+    } else if (step.type === 'swipe' || step.type === 'mobile-swipe') {
+      saveProp('sx', x);
+      saveProp('sy', y);
+      setInputValue('pe-sx', x);
+      setInputValue('pe-sy', y);
+    } else {
+      saveProp('mx', x);
+      saveProp('my', y);
+    }
+  };
+
+  if (result.mode === 'point') {
+    applyPoint(result.x, result.y);
+    addLog('Koordinat (X: '+result.x+', Y: '+result.y+') berhasil dipilih.', 'success');
+    return;
+  }
+
+  if (result.mode === 'swipe') {
+    saveProp('sx', result.startX);
+    saveProp('sy', result.startY);
+    saveProp('ex', result.endX);
+    saveProp('ey', result.endY);
+    setInputValue('pe-sx', result.startX);
+    setInputValue('pe-sy', result.startY);
+    setInputValue('pe-ex', result.endX);
+    setInputValue('pe-ey', result.endY);
+    addLog('Swipe points berhasil dipilih: start ('+result.startX+','+result.startY+'), end ('+result.endX+','+result.endY+').', 'success');
+    return;
+  }
+
+  if (result.mode === 'region') {
+    const keyPrefix = (step.type === 'mobile-find-text' || step.type === 'mobile-wait-text') ? 'ocrRegion' : 'searchRegion';
+    saveProp(keyPrefix + 'X', result.x);
+    saveProp(keyPrefix + 'Y', result.y);
+    saveProp(keyPrefix + 'W', result.width);
+    saveProp(keyPrefix + 'H', result.height);
+    setInputValue('pe-mwt-ocr-x', result.x);
+    setInputValue('pe-mwt-ocr-y', result.y);
+    setInputValue('pe-mwt-ocr-w', result.width);
+    setInputValue('pe-mwt-ocr-h', result.height);
+    setInputValue('pe-wat-region-x', result.x);
+    setInputValue('pe-wat-region-y', result.y);
+    setInputValue('pe-wat-region-w', result.width);
+    setInputValue('pe-wat-region-h', result.height);
+    addLog('Region berhasil dipilih: X:'+result.x+' Y:'+result.y+' W:'+result.width+' H:'+result.height, 'success');
+    return;
+  }
+
+  if (result.mode === 'image') {
+    const preview = document.getElementById('pe-wat-ref-preview');
+    const dataUrl = 'data:image/png;base64,' + result.imageBase64;
+    
+    // Save to node config
+    saveProp('referenceImage', result.imageBase64);
+    saveProp('referenceImageRegionX', result.x);
+    saveProp('referenceImageRegionY', result.y);
+    saveProp('referenceImageRegionW', result.width);
+    saveProp('referenceImageRegionH', result.height);
+    
+    // PERSIST to disk via IPC for session persistence
+    const filename = `ref_${selectedIdx}_${Date.now()}.png`;
+    ipcRenderer.invoke('save-reference-image', {
+      nodeId: selectedIdx,
+      base64: result.imageBase64,
+      filename: filename
+    }).then(saveResult => {
+      if (saveResult.success) {
+        saveProp('referenceImagePath', saveResult.filePath);
+        saveProp('referenceImageMeta', JSON.stringify({
+          capturedAt: new Date().toISOString(),
+          region: { x: result.x, y: result.y, width: result.width, height: result.height },
+          filename: filename,
+          deviceId: deviceId
+        }));
+        addLog('Reference image disimpan persisten: ' + filename, 'success');
+      } else {
+        addLog('Gagal menyimpan ke disk: ' + saveResult.error, 'warn');
+      }
+    }).catch(err => {
+      addLog('Error saving reference image: ' + err.message, 'error');
+    });
+    
+    if (preview) {
+      preview.src = dataUrl;
+      preview.style.display = 'block';
+    }
+    addLog('Reference image dari layar berhasil disimpan.', 'success');
+    return;
+  }
+
+  if (result.mode === 'text') {
+    saveProp('waitText', result.text);
+    saveProp('ocrRegionX', result.x);
+    saveProp('ocrRegionY', result.y);
+    saveProp('ocrRegionW', result.width);
+    saveProp('ocrRegionH', result.height);
+    setInputValue('pe-mwt-text', result.text);
+    setInputValue('pe-mwt-ocr-x', result.x);
+    setInputValue('pe-mwt-ocr-y', result.y);
+    setInputValue('pe-mwt-ocr-w', result.width);
+    setInputValue('pe-mwt-ocr-h', result.height);
+    addLog('Teks terdeteksi: "'+result.text+'" dan region disimpan.', 'success');
+    return;
+  }
+}
+
+function pickScreenSwipe() {
+  pickScreenCoordinate('swipe');
+}
+
+function pickWaitTapCoordinate() {
+  pickScreenCoordinate('point');
+}
+
+function pickWaitTapRegion() {
+  pickScreenCoordinate('region');
+}
+
+function captureWaitTapImage() {
+  pickScreenCoordinate('image');
+}
+
+function pickWaitTextRegion() {
+  pickScreenCoordinate('region');
+}
+
+function detectTextFromScreen() {
+  pickScreenCoordinate('text');
+}
+
+function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
+  const existing = document.getElementById('screen-picker-modal');
+  if (existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'screen-picker-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.85);z-index:99999;display:flex;align-items:center;justify-content:center;';
+
+  const titleMap = {
+    point: 'Pilih Koordinat dari Layar',
+    swipe: 'Pilih Swipe Point (Klik Start lalu End)',
+    region: 'Pilih Region dari Layar',
+    image: 'Capture Area sebagai Reference Image',
+    text: 'Pilih Teks dari Layar'
+  };
+
+  modal.innerHTML = `
+    <div id="sp-dialog" style="width:92vw;max-width:1120px;height:88vh;background:#111827;border:1px solid #334155;border-radius:16px;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 0 40px rgba(0,0,0,.8);">
+      <div style="padding:16px 18px;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:16px;">
+        <div>
+          <div style="font-size:16px;font-weight:700;">${titleMap[mode] || 'Screen Picker'}</div>
+          <div style="font-size:12px;color:#94a3b8;margin-top:4px;">Klik area pada gambar, lalu konfirmasi.</div>
+        </div>
+        <button id="sp-close" style="border:none;background:transparent;color:#f8fafc;font-size:20px;cursor:pointer;">✕</button>
+      </div>
+      <div style="flex:1;display:flex;overflow:hidden;">
+        <div style="position:relative;flex:1;display:flex;align-items:center;justify-content:center;">
+          <img id="sp-image" src="${imageSrc}" style="max-width:100%;max-height:100%;user-select:none;pointer-events:none;display:block;object-fit:contain;" />
+          <div id="sp-overlay" style="position:absolute;inset:0;cursor:crosshair;"></div>
+          <div id="sp-crosshair-x" style="position:absolute;left:0;right:0;height:1px;background:rgba(16,185,129,.7);pointer-events:none;display:none;"></div>
+          <div id="sp-crosshair-y" style="position:absolute;top:0;bottom:0;width:1px;background:rgba(16,185,129,.7);pointer-events:none;display:none;"></div>
+          <div id="sp-selection" style="position:absolute;border:2px dashed rgba(56,189,248,.85);background:rgba(56,189,248,.15);pointer-events:none;display:none;"></div>
+          <div id="sp-start-marker" style="position:absolute;width:14px;height:14px;border-radius:999px;background:#ef4444;border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%, -50%);"></div>
+          <div id="sp-end-marker" style="position:absolute;width:14px;height:14px;border-radius:999px;background:#38bdf8;border:2px solid #fff;pointer-events:none;display:none;transform:translate(-50%, -50%);"></div>
+          <div id="sp-text-boxes" style="position:absolute;inset:0;pointer-events:none;"></div>
+          <div id="sp-debug" style="position:absolute;left:16px;bottom:16px;padding:6px 10px;background:rgba(15,23,42,0.9);color:#a7f3d0;font-size:12px;border-radius:10px;pointer-events:none;display:none;z-index:20;font-family:monospace;"></div>
+        </div>
+      </div>
+      <div style="padding:14px 18px;background:#08121e;color:#e2e8f0;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div id="sp-status" style="font-size:13px;color:#cbd5e1;">Device: ${deviceId} | Resolusi: ${deviceSize.width}x${deviceSize.height}</div>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+          <button id="sp-cancel" style="border:none;background:#334155;color:#f8fafc;padding:8px 14px;border-radius:10px;cursor:pointer;">Batal</button>
+          <button id="sp-confirm" style="border:none;background:#10b981;color:#071f1f;padding:8px 14px;border-radius:10px;cursor:pointer;font-weight:700;">Konfirmasi</button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.body.appendChild(modal);
+
+  const overlayLayer = modal.querySelector('#sp-overlay');
+  const img = modal.querySelector('#sp-image');
+  const status = modal.querySelector('#sp-status');
+  const crossX = modal.querySelector('#sp-crosshair-x');
+  const crossY = modal.querySelector('#sp-crosshair-y');
+  const selection = modal.querySelector('#sp-selection');
+  const startMarker = modal.querySelector('#sp-start-marker');
+  const endMarker = modal.querySelector('#sp-end-marker');
+  const textBoxes = modal.querySelector('#sp-text-boxes');
+  const debugOverlay = modal.querySelector('#sp-debug');
+
+  let isDragging = false;
+  let dragStart = null;
+  let dragRect = null;
+  let swipeStart = null;
+  let swipeEnd = null;
+  let selectedPoint = null;
+  let ocrWords = [];
+
+  function getImageRenderInfo() {
+    const rect = img.getBoundingClientRect();
+    const naturalWidth = img.naturalWidth || deviceSize.width;
+    const naturalHeight = img.naturalHeight || deviceSize.height;
+    const imageAspect = naturalWidth / naturalHeight;
+    const containerAspect = rect.width / rect.height;
+
+    let renderedWidth = rect.width;
+    let renderedHeight = rect.height;
+    let offsetX = 0;
+    let offsetY = 0;
+
+    if (imageAspect > containerAspect) {
+      renderedWidth = rect.width;
+      renderedHeight = rect.width / imageAspect;
+      offsetY = (rect.height - renderedHeight) / 2;
+    } else {
+      renderedHeight = rect.height;
+      renderedWidth = rect.height * imageAspect;
+      offsetX = (rect.width - renderedWidth) / 2;
+    }
+
+    return {
+      rect,
+      renderedWidth,
+      renderedHeight,
+      offsetX,
+      offsetY,
+      scaleX: naturalWidth / renderedWidth,
+      scaleY: naturalHeight / renderedHeight
+    };
+  }
+
+  function getDeviceCoords(clientX, clientY) {
+    const { rect, renderedWidth, renderedHeight, offsetX, offsetY, scaleX, scaleY } = getImageRenderInfo();
+    const cssX = clientX - rect.left;
+    const cssY = clientY - rect.top;
+    const imageX = cssX - offsetX;
+    const imageY = cssY - offsetY;
+    const clampedX = Math.max(0, Math.min(renderedWidth, imageX));
+    const clampedY = Math.max(0, Math.min(renderedHeight, imageY));
+
+    return {
+      x: Math.round(clampedX * scaleX),
+      y: Math.round(clampedY * scaleY),
+      _debug: { cssX, cssY, renderedWidth, renderedHeight, offsetX, offsetY, scaleX, scaleY }
+    };
+  }
+
+  function updateCrosshair(clientX, clientY) {
+    const { rect, renderedWidth, renderedHeight, offsetX, offsetY } = getImageRenderInfo();
+    const cssX = clientX - rect.left;
+    const cssY = clientY - rect.top;
+
+    if (cssX < offsetX || cssX > offsetX + renderedWidth || cssY < offsetY || cssY > offsetY + renderedHeight) {
+      crossX.style.display = 'none';
+      crossY.style.display = 'none';
+      debugOverlay.style.display = 'none';
+      return;
+    }
+
+    crossX.style.display = 'block';
+    crossY.style.display = 'block';
+    crossX.style.top = (cssY - offsetY) + 'px';
+    crossY.style.left = (cssX - offsetX) + 'px';
+
+    const coords = getDeviceCoords(clientX, clientY);
+    debugOverlay.style.display = 'block';
+    debugOverlay.textContent = `Device: X:${coords.x} Y:${coords.y}`;
+  }
+
+  function updateSelectionBox(rect) {
+    if (!rect || rect.width <= 0 || rect.height <= 0) {
+      selection.style.display = 'none';
+      return;
+    }
+    const { renderedWidth, renderedHeight, offsetX, offsetY, scaleX, scaleY } = getImageRenderInfo();
+    const left = offsetX + (rect.x / scaleX);
+    const top = offsetY + (rect.y / scaleY);
+    const width = rect.width / scaleX;
+    const height = rect.height / scaleY;
+
+    selection.style.display = 'block';
+    selection.style.left = left + 'px';
+    selection.style.top = top + 'px';
+    selection.style.width = width + 'px';
+    selection.style.height = height + 'px';
+  }
+
+  function updateStartEndMarkers() {
+    const { offsetX, offsetY, scaleX, scaleY } = getImageRenderInfo();
+    if (swipeStart) {
+      startMarker.style.display = 'block';
+      startMarker.style.left = (offsetX + swipeStart.x / scaleX) + 'px';
+      startMarker.style.top = (offsetY + swipeStart.y / scaleY) + 'px';
+    } else {
+      startMarker.style.display = 'none';
+    }
+    if (swipeEnd) {
+      endMarker.style.display = 'block';
+      endMarker.style.left = (offsetX + swipeEnd.x / scaleX) + 'px';
+      endMarker.style.top = (offsetY + swipeEnd.y / scaleY) + 'px';
+    } else {
+      endMarker.style.display = 'none';
+    }
+  }
+
+  function renderOcrBoxes() {
+    textBoxes.innerHTML = '';
+    const { offsetX, offsetY, scaleX, scaleY, renderedWidth, renderedHeight } = getImageRenderInfo();
+    ocrWords.forEach((word, idx) => {
+      const box = document.createElement('div');
+      box.style.position = 'absolute';
+      box.style.left = (offsetX + word.bbox.x0 / scaleX) + 'px';
+      box.style.top = (offsetY + word.bbox.y0 / scaleY) + 'px';
+      box.style.width = ((word.bbox.x1 - word.bbox.x0) / scaleX) + 'px';
+      box.style.height = ((word.bbox.y1 - word.bbox.y0) / scaleY) + 'px';
+      box.style.border = '2px solid rgba(248, 113, 113, 0.9)';
+      box.style.background = 'rgba(248,113,113,0.2)';
+      box.style.cursor = 'pointer';
+      box.title = word.text;
+      box.addEventListener('click', (event) => {
+        event.stopPropagation();
+        saveScreenPickerResult({
+          mode: 'text',
+          text: word.text,
+          x: Math.round(word.bbox.x0),
+          y: Math.round(word.bbox.y0),
+          width: Math.round(word.bbox.x1 - word.bbox.x0),
+          height: Math.round(word.bbox.y1 - word.bbox.y0)
+        });
+        modal.remove();
+      });
+      textBoxes.appendChild(box);
+    });
+  }
+
+  function updateStatusText(message) {
+    if (status) status.textContent = message;
+  }
+
+  overlayLayer.addEventListener('mousemove', (event) => {
+    updateCrosshair(event.clientX, event.clientY);
+    if (isDragging && dragStart) {
+      const coords = getDeviceCoords(event.clientX, event.clientY);
+      dragRect = {
+        x: Math.min(dragStart.x, coords.x),
+        y: Math.min(dragStart.y, coords.y),
+        width: Math.abs(coords.x - dragStart.x),
+        height: Math.abs(coords.y - dragStart.y)
+      };
+      updateSelectionBox(dragRect);
+      updateStatusText(`Region: X:${dragRect.x} Y:${dragRect.y} W:${dragRect.width} H:${dragRect.height}`);
+    }
+  });
+
+  overlayLayer.addEventListener('mousedown', (event) => {
+    if (mode === 'text') return;
+    const coords = getDeviceCoords(event.clientX, event.clientY);
+    if (mode === 'point') {
+      selectedPoint = coords;
+      updateStatusText(`Dipilih: X:${coords.x} Y:${coords.y}`);
+      saveScreenPickerResult({ mode:'point', x:coords.x, y:coords.y });
+      modal.remove();
+      return;
+    }
+    if (mode === 'swipe') {
+      if (!swipeStart) {
+        swipeStart = coords;
+        updateStatusText(`Start dipilih: X:${coords.x} Y:${coords.y}. Pilih titik End.`);
+        updateStartEndMarkers();
+      } else {
+        swipeEnd = coords;
+        updateStatusText(`End dipilih: X:${coords.x} Y:${coords.y}. Klik Konfirmasi.`);
+        updateStartEndMarkers();
+      }
+      return;
+    }
+    if (mode === 'region' || mode === 'image') {
+      isDragging = true;
+      dragStart = coords;
+      dragRect = { x: coords.x, y: coords.y, width: 0, height: 0 };
+      updateSelectionBox(dragRect);
+      updateStatusText('Drag untuk memilih area.');
+    }
+  });
+
+  window.addEventListener('mouseup', (event) => {
+    if (!isDragging) return;
+    const coords = getDeviceCoords(event.clientX, event.clientY);
+    dragRect = {
+      x: Math.min(dragStart.x, coords.x),
+      y: Math.min(dragStart.y, coords.y),
+      width: Math.abs(coords.x - dragStart.x),
+      height: Math.abs(coords.y - dragStart.y)
+    };
+    isDragging = false;
+    updateSelectionBox(dragRect);
+    updateStatusText(`Area dipilih: X:${dragRect.x} Y:${dragRect.y} W:${dragRect.width} H:${dragRect.height}`);
+  });
+
+  modal.querySelector('#sp-close').addEventListener('click', () => modal.remove());
+  modal.querySelector('#sp-cancel').addEventListener('click', () => modal.remove());
+  modal.querySelector('#sp-confirm').addEventListener('click', async () => {
+    if (mode === 'swipe' && swipeStart && swipeEnd) {
+      saveScreenPickerResult({ mode: 'swipe', startX: swipeStart.x, startY: swipeStart.y, endX: swipeEnd.x, endY: swipeEnd.y });
+      modal.remove();
+      return;
+    }
+    if ((mode === 'region' || mode === 'image') && dragRect && dragRect.width > 0 && dragRect.height > 0) {
+      if (mode === 'region') {
+        saveScreenPickerResult({ mode:'region', ...dragRect });
+        modal.remove();
+        return;
+      }
+      const croppedBase64 = await cropImageSection(imageSrc, dragRect, deviceSize);
+      saveScreenPickerResult({ mode:'image', imageBase64: croppedBase64 });
+      modal.remove();
+      return;
+    }
+    if (mode === 'text') {
+      updateStatusText('Pilih bounding box teks atau tutup jika sudah selesai.');
+      return;
+    }
+    updateStatusText('Tidak ada pilihan yang valid.');
+  });
+
+  async function runTextDetection() {
+    const Tesseract = require('tesseract.js');
+    const result = await Tesseract.recognize(imageSrc, 'eng', {
+      logger: m => {
+        if (status) status.textContent = 'OCR: ' + (m.status || '') + (m.progress ? ' ' + Math.round(m.progress * 100) + '%' : '');
+      }
+    });
+    const words = result.data.words || [];
+    ocrWords = words.map(w => ({ text: w.text, bbox: w.bbox }));
+    if (!ocrWords.length) {
+      if (status) status.textContent = 'Tidak ditemukan teks pada layar.';
+      return;
+    }
+    renderOcrBoxes();
+    if (status) status.textContent = 'Pilih bounding box teks yang ingin digunakan.';
+  }
+
+  if (mode === 'text') {
+    updateStatusText('Menjalankan OCR, harap tunggu...');
+    runTextDetection().catch(err => {
+      updateStatusText('OCR gagal: ' + err.message);
+    });
+  }
+}
+
+async function cropImageSection(src, rect, deviceSize) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      const scaleX = img.naturalWidth / deviceSize.width;
+      const scaleY = img.naturalHeight / deviceSize.height;
+      canvas.width = Math.max(1, Math.round(rect.width * scaleX));
+      canvas.height = Math.max(1, Math.round(rect.height * scaleY));
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(
+        img,
+        Math.round(rect.x * scaleX), Math.round(rect.y * scaleY),
+        Math.round(rect.width * scaleX), Math.round(rect.height * scaleY),
+        0, 0,
+        canvas.width, canvas.height
+      );
+      resolve(canvas.toDataURL('image/png').split(',')[1]);
+    };
+    img.onerror = () => reject(new Error('Gagal memuat screenshot untuk crop'));
+    img.src = src;
+  });
 }
 
 // ─── Delete / Duplicate ───────────────────────────────────────
@@ -1822,30 +2386,81 @@ function createNew() {
 }
 
 // ─── ADB & Devices ────────────────────────────────────────────
-async function refreshDevices() {
+let adbAutoRefreshState = {
+  consecutiveErrors: 0,
+  isCircuitOpen: false,
+  circuitOpenedAt: null,
+  maxConsecutiveErrors: 3,
+  circuitOpenDelay: 30000,
+  pollInterval: 5000,
+  lastDevicesJson: '[]',
+  lastErrorMessage: ''
+};
+
+async function refreshDevices(manual = false) {
+  if (adbAutoRefreshState.isCircuitOpen && !manual) {
+    const elapsed = Date.now() - adbAutoRefreshState.circuitOpenedAt;
+    if (elapsed < adbAutoRefreshState.circuitOpenDelay) {
+      console.log('[ADB] Circuit breaker active, skipping refresh.');
+      return;
+    }
+    adbAutoRefreshState.isCircuitOpen = false;
+    adbAutoRefreshState.consecutiveErrors = 0;
+    adbAutoRefreshState.lastErrorMessage = '';
+  }
+
   addLog('Refreshing ADB devices...', 'info');
   try {
     const info = await ipcRenderer.invoke('adb-info');
+    const statusEl = document.getElementById('adb-status-msg');
+
     if (!info.found) {
-      addLog('ADB tidak ditemukan: ' + info.path, 'warn');
+      const message = `ADB tidak ditemukan: ${info.path}`;
+      if (adbAutoRefreshState.lastErrorMessage !== message) {
+        addLog(message, 'warn');
+        adbAutoRefreshState.lastErrorMessage = message;
+      }
+
+      adbAutoRefreshState.consecutiveErrors += 1;
       updateDeviceSelector([]);
-      const statusEl = document.getElementById('adb-status-msg');
       if (statusEl) {
-        statusEl.textContent = '❌ ADB tidak ditemukan: ' + info.path;
+        statusEl.textContent = '❌ ' + message;
         statusEl.style.color = 'var(--red)';
+      }
+
+      if (adbAutoRefreshState.consecutiveErrors >= adbAutoRefreshState.maxConsecutiveErrors) {
+        adbAutoRefreshState.isCircuitOpen = true;
+        adbAutoRefreshState.circuitOpenedAt = Date.now();
+        addLog('⚠️ ADB auto-refresh stopped temporarily. Klik Refresh untuk coba lagi.', 'warn');
       }
       return;
     }
-    updateDeviceSelector(info.devices);
-    logAutoDetection('ADB devices refreshed: ' + (info.devices.length ? info.devices.join(', ') : 'no devices found'), 'success');
-    const statusEl = document.getElementById('adb-status-msg');
+
+    adbAutoRefreshState.consecutiveErrors = 0;
+    adbAutoRefreshState.lastErrorMessage = '';
     if (statusEl) {
       statusEl.textContent = '✅ ADB: ' + info.path;
       statusEl.style.color = 'var(--green)';
     }
+
+    const devicesJson = JSON.stringify(info.devices);
+    if (devicesJson !== adbAutoRefreshState.lastDevicesJson) {
+      updateDeviceSelector(info.devices);
+      logAutoDetection('ADB devices refreshed: ' + (info.devices.length ? info.devices.join(', ') : 'no devices found'), 'success');
+      adbAutoRefreshState.lastDevicesJson = devicesJson;
+    }
   } catch (err) {
-    addLog('refreshDevices failed: ' + err.message, 'error');
-    ipcRenderer.send('get-devices');
+    const message = 'refreshDevices failed: ' + err.message;
+    if (adbAutoRefreshState.lastErrorMessage !== message) {
+      addLog(message, 'error');
+      adbAutoRefreshState.lastErrorMessage = message;
+    }
+    adbAutoRefreshState.consecutiveErrors += 1;
+    if (adbAutoRefreshState.consecutiveErrors >= adbAutoRefreshState.maxConsecutiveErrors) {
+      adbAutoRefreshState.isCircuitOpen = true;
+      adbAutoRefreshState.circuitOpenedAt = Date.now();
+      addLog('⚠️ ADB auto-refresh stopped temporarily due to repeated errors. Klik Refresh untuk coba lagi.', 'warn');
+    }
   }
 }
 
@@ -1902,7 +2517,14 @@ function updateDeviceSelector(devices) {
 ipcRenderer.on('device-list', (e, list) => {
   updateDeviceSelector(list);
 });
-setInterval(() => { if(typeof ipcRenderer !== 'undefined') ipcRenderer.send('get-devices'); }, 5000);
+
+function startAdbAutoRefresh() {
+  setInterval(() => {
+    refreshDevices(false);
+  }, adbAutoRefreshState.pollInterval);
+}
+
+startAdbAutoRefresh();
 
 // ─── EXECUTION ENGINE ─────────────────────────────────────────
 async function runAdb(device, args) {

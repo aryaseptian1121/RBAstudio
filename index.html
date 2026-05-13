@@ -574,6 +574,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                     <input class="prop-input" type="number" id="pe-sy" oninput="saveProp('sy',+this.value)">
                   </div>
                 </div>
+                <button class="prop-input" type="button" onclick="pickScreenSwipe()" style="margin-top:8px;">Pick Swipe Points From Screen</button>
                 <div class="prop-row2" style="margin-top:8px;">
                   <div>
                     <label class="prop-label">End X</label>
@@ -630,6 +631,8 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                   <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-mwt-ocr-x" placeholder="0" oninput="saveProp('ocrRegionX',+this.value)"></div>
                   <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-mwt-ocr-y" placeholder="0" oninput="saveProp('ocrRegionY',+this.value)"></div>
                 </div>
+                <button class="prop-input" type="button" onclick="pickWaitTextRegion()" style="margin-top:8px;">Pick OCR Region</button>
+                <button class="prop-input" type="button" onclick="detectTextFromScreen()" style="margin-top:8px;">Detect Text From Screen</button>
                 <div class="prop-row2" style="margin-top:8px; gap:8px;">
                   <div><label class="prop-label">Width</label><input class="prop-input" type="number" id="pe-mwt-ocr-w" placeholder="0" oninput="saveProp('ocrRegionW',+this.value)"></div>
                   <div><label class="prop-label">Height</label><input class="prop-input" type="number" id="pe-mwt-ocr-h" placeholder="0" oninput="saveProp('ocrRegionH',+this.value)"></div>
@@ -658,48 +661,98 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 
               <!-- WAIT & TAP -->
               <div class="prop-group" id="pg-wait-and-tap" style="display:none;">
+                <!-- TIMING -->
+                <div style="padding:0 0 8px 0; border-bottom:1px solid var(--dim3); margin-bottom:12px;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⏱ TIMING</div>
+                </div>
                 <label class="prop-label">Delay Before (ms)</label>
                 <input class="prop-input" type="number" id="pe-wat-delay" value="500" oninput="saveProp('delayBefore',+this.value)">
+                
                 <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
-                <input class="prop-input" type="number" id="pe-wat-timeout" value="10000" oninput="saveProp('timeout',+this.value)">
-                <label class="prop-label" style="margin-top:8px;">Tap Coordinate X</label>
-                <input class="prop-input" type="number" id="pe-wat-x" value="0" oninput="saveProp('tapX',+this.value)">
-                <label class="prop-label" style="margin-top:8px;">Tap Coordinate Y</label>
-                <input class="prop-input" type="number" id="pe-wat-y" value="0" oninput="saveProp('tapY',+this.value)">
-                <label class="prop-label" style="margin-top:8px;">Reference Image</label>
-                <input class="prop-input" type="file" id="pe-wat-ref-img" accept="image/*" onchange="handleWaitTapImage(this)">
-                <img id="pe-wat-ref-preview" style="display:none;width:100%;margin-top:8px;border:1px solid var(--border);border-radius:8px;max-height:160px;object-fit:contain;">
-                <label class="prop-label" style="margin-top:8px;">Confidence Threshold (%)</label>
-                <input class="prop-input" type="range" id="pe-wat-confidence" min="0" max="100" value="80" oninput="saveProp('confidence',+this.value); updateWaitTapConfidence(this.value)">
-                <div id="pe-wat-confidence-value" style="font-size:11px;color:var(--dim2);">80%</div>
-                <label class="prop-label" style="margin-top:8px;">Search Region</label>
-                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                <input class="prop-input" type="number" id="pe-wat-timeout" value="30000" oninput="saveProp('timeout',+this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Maksimal waktu menunggu gambar muncul</div>
+                
+                <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-retry-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Jarak waktu antar percobaan polling</div>
+
+                <!-- REFERENCE IMAGE -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">📸 REFERENCE IMAGE</div>
+                </div>
+                <div style="padding:10px; background:var(--bg2); border:1px solid var(--dim3); border-radius:8px; margin-bottom:8px;">
+                  <img id="pe-wat-ref-preview" style="display:none;width:100%;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;max-height:160px;object-fit:contain;">
+                  <div id="pe-wat-ref-empty" style="text-align:center; color:var(--dim2); font-size:12px; padding:20px 0;">Belum ada gambar referensi</div>
+                </div>
+                <button class="prop-input" type="button" onclick="captureWaitTapImage()" style="margin-bottom:6px; background:#1a3a5c; border:1px solid #2a5a8c; color:#7cc4f8;">📸 Capture From Screen</button>
+                <input class="prop-input" type="file" id="pe-wat-ref-img" accept="image/*" onchange="handleWaitTapImage(this)" style="margin-bottom:8px;">
+                
+                <label class="prop-label">Confidence Threshold (%)</label>
+                <input class="prop-input" type="range" id="pe-wat-confidence" min="50" max="100" value="80" oninput="saveProp('confidence',+this.value); updateWaitTapConfidence(this.value)" style="width:100%;">
+                <div id="pe-wat-confidence-value" style="font-size:11px; color:var(--dim2); text-align:center; margin-top:4px;">80%</div>
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Semakin tinggi = lebih ketat, semakin rendah = lebih toleran</div>
+
+                <!-- TAP COORDINATE -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">🎯 TAP COORDINATE</div>
+                </div>
+                <div class="prop-row2" style="gap:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-wat-x" value="0" oninput="saveProp('tapX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-wat-y" value="0" oninput="saveProp('tapY',+this.value)"></div>
+                </div>
+                <div style="font-size:10px; color:var(--dim3); margin-top:4px;">0,0 = tap ke tengah gambar yang ditemukan</div>
+                <button class="prop-input" type="button" onclick="pickWaitTapCoordinate()" style="margin-top:8px;">🎯 Pick Tap Point</button>
+                
+                <label class="prop-label" style="margin-top:12px;">Randomize Offset</label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
+                  <input type="checkbox" id="pe-wat-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleWaitTapOffsetRange(this.checked)">
+                  <span>Acak posisi tap ±<span id="pe-wat-offset-display">5</span>px</span>
+                </label>
+                <div id="pg-wat-offset-range" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Range (px)</label>
+                  <input class="prop-input" type="number" id="pe-wat-offset" value="5" oninput="saveProp('offsetRange',+this.value); document.getElementById('pe-wat-offset-display').textContent=this.value;">
+                </div>
+
+                <!-- SEARCH REGION (optional) -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⬜ SEARCH REGION (Optional)</div>
+                </div>
+                <div class="prop-row2" style="gap:8px; margin-bottom:8px;">
                   <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-wat-region-x" placeholder="0" oninput="saveProp('searchRegionX',+this.value)"></div>
                   <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-wat-region-y" placeholder="0" oninput="saveProp('searchRegionY',+this.value)"></div>
                 </div>
-                <div class="prop-row2" style="margin-top:8px; gap:8px;">
-                  <div><label class="prop-label">Width</label><input class="prop-input" type="number" id="pe-wat-region-w" placeholder="0" oninput="saveProp('searchRegionW',+this.value)"></div>
-                  <div><label class="prop-label">Height</label><input class="prop-input" type="number" id="pe-wat-region-h" placeholder="0" oninput="saveProp('searchRegionH',+this.value)"></div>
+                <div class="prop-row2" style="gap:8px;">
+                  <div><label class="prop-label">W</label><input class="prop-input" type="number" id="pe-wat-region-w" placeholder="0" oninput="saveProp('searchRegionW',+this.value)"></div>
+                  <div><label class="prop-label">H</label><input class="prop-input" type="number" id="pe-wat-region-h" placeholder="0" oninput="saveProp('searchRegionH',+this.value)"></div>
                 </div>
-                <label class="prop-label" style="margin-top:8px;">Randomize Tap Offset</label>
-                <input class="prop-input" type="checkbox" id="pe-wat-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleWaitTapOffsetRange(this.checked)">
-                <div id="pg-wat-offset-range" style="display:none; margin-top:8px;">
-                  <label class="prop-label">Offset Range (px)</label>
-                  <input class="prop-input" type="number" id="pe-wat-offset" value="5" oninput="saveProp('offsetRange',+this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:4px;">Kosong = cari di seluruh layar</div>
+                <button class="prop-input" type="button" onclick="pickWaitTapRegion()" style="margin-top:8px;">⬜ Pick Region</button>
+
+                <!-- TIMEOUT ACTION -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⚠ IF TIMEOUT</div>
                 </div>
-                <label class="prop-label" style="margin-top:8px;">On Timeout Action</label>
+                <label class="prop-label">Action</label>
                 <select class="prop-input prop-select" id="pe-wat-onfail" onchange="saveProp('onTimeoutAction',this.value); toggleWaitTapGoto(this.value)">
-                  <option value="stop">Stop Flow</option>
-                  <option value="retry">Retry</option>
-                  <option value="skip">Skip</option>
+                  <option value="stop">Stop Flow (Error)</option>
+                  <option value="skip">Skip Node</option>
                   <option value="goto">Go To Step</option>
                 </select>
                 <div id="pg-wat-goto" style="display:none; margin-top:8px;">
-                  <label class="prop-label">Go To Step ID</label>
-                  <input class="prop-input" id="pe-wat-goto-step" placeholder="Step ID" oninput="saveProp('gotoStep',this.value)">
+                  <label class="prop-label">Step Index</label>
+                  <input class="prop-input" type="number" id="pe-wat-goto-step" placeholder="Step index" oninput="saveProp('gotoStepIndex',+this.value)">
                 </div>
-                <label class="prop-label" style="margin-top:8px;">Retry Count</label>
-                <input class="prop-input" type="number" id="pe-wat-retry-count" value="3" oninput="saveProp('retryCount',+this.value)">
+
+                <!-- OUTPUT & NOTES -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">📝 OUTPUT</div>
+                </div>
+                <label class="prop-label">Output Variable</label>
+                <input class="prop-input" type="text" id="pe-wat-output-var" placeholder="e.g., wait_result" oninput="saveProp('outputVariable',this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Nilai: 'found' | 'timeout' | 'skipped'</div>
+                
+                <label class="prop-label" style="margin-top:12px;">Notes / Comment</label>
+                <textarea class="prop-input" id="pe-wat-comment" style="height:60px; resize:vertical;" placeholder="Optional notes..." onchange="saveProp('comment',this.value)"></textarea>
               </div>
 
               <!-- MOBILE KEYEVENT -->
@@ -907,7 +960,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <option>No ADB Device</option>
             </select>
             <div class="dev-actions">
-              <button class="dev-btn refresh" onclick="refreshDevices()">🔄 Refresh</button>
+              <button class="dev-btn refresh" onclick="refreshDevices(true)">🔄 Refresh</button>
               <button class="dev-btn scrcpy" onclick="launchScrcpy()">📱 scrcpy</button>
             </div>
           </div>
