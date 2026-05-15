@@ -536,6 +536,13 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <div class="prop-group" id="pg-browser" style="display:none;">
                 <label class="prop-label">URL</label>
                 <input class="prop-input" id="pe-url" placeholder="https://..." oninput="saveProp('url',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Profile Key (optional)</label>
+                <input class="prop-input" id="pe-profile-key" placeholder="e.g. tokopedia.com" oninput="saveProp('browserProfileKey',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Open Mode</label>
+                <select class="prop-input prop-select" id="pe-browser-open-mode" onchange="saveProp('browserOpenMode',this.value)">
+                  <option value="reuse_if_exists">Reuse if exists</option>
+                  <option value="always_open">Always open new</option>
+                </select>
                 <label class="prop-label" style="margin-top:8px;">Browser</label>
                 <select class="prop-input prop-select" id="pe-browser" onchange="saveProp('browser',this.value)">
                   <option value="default">Default</option>
@@ -595,11 +602,50 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 
               <!-- MOBILE TAP -->
               <div class="prop-group" id="pg-mobile-tap" style="display:none;">
-                <label class="prop-label">Coordinate X</label>
-                <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('mx',+this.value)">
+                <label class="prop-label">Match Mode</label>
+                <select class="prop-input prop-select" id="pe-mtap-match-mode" onchange="saveProp('matchMode',this.value); toggleMobileTapFields(this.value)">
+                  <option value="COORDINATE_ONLY">Coordinate Only</option>
+                  <option value="IMAGE">Image Match</option>
+                  <option value="TEXT">Text Match</option>
+                  <option value="IMAGE_OR_TEXT">Image + Text</option>
+                </select>
+                
+                <!-- Coordinate fields (always visible) -->
+                <label class="prop-label" style="margin-top:8px;">Coordinate X</label>
+                <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('coordinateX',+this.value)">
                 <label class="prop-label" style="margin-top:8px;">Coordinate Y</label>
-                <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('my',+this.value)">
-                <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick From Screen</button>
+                <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('coordinateY',+this.value)">
+                
+                <!-- Enhanced Pick From Screen button -->
+                <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick Element (Image + Coords)</button>
+                
+                <!-- Template Image Preview (for IMAGE and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-template" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Target Preview</label>
+                  <img id="pe-mtap-template-preview" style="max-width:100%; max-height:100px; border:1px solid #374151; border-radius:4px; display:none; margin-top:4px;">
+                </div>
+                
+                <!-- Target Text (for TEXT and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-text" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Target Text</label>
+                  <input class="prop-input" id="pe-mtap-target-text" placeholder="OCR detected text" oninput="saveProp('targetText',this.value)">
+                </div>
+                
+                <!-- Match Threshold (for IMAGE and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-threshold" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Match Threshold (0.0 - 1.0)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-threshold" min="0" max="1" step="0.05" value="0.85" oninput="saveProp('matchThreshold',+this.value)">
+                </div>
+                
+                <!-- Wait/Retry settings (for IMAGE, TEXT, IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-wait" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Wait Timeout (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-timeout" value="30000" oninput="saveProp('waitTimeout',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+                </div>
+                
+                <!-- Legacy fields (for backward compatibility) -->
                 <label class="prop-label" style="margin-top:8px;">Randomize Offset</label>
                 <input class="prop-input" type="checkbox" id="pe-mtap-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleTapOffsetRange(this.checked)">
                 <div id="pg-mtap-offset" style="display:none; margin-top:8px;">
@@ -933,6 +979,57 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                 </select>
                 <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
                 <input class="prop-input" type="number" id="pe-wait-timeout" value="10000" oninput="saveProp('waitTimeout',+this.value)">
+              </div>
+
+              <!-- EXCEL SUBMIT WEB -->
+              <div class="prop-group" id="pg-excel-submit-web" style="display:none;">
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-bottom:8px;">📁 SUMBER FILE</div>
+                <label class="prop-label">File Excel</label>
+                <input class="prop-input" id="pe-esw-filepath" placeholder="Path file atau $variable" oninput="saveProp('filePath',this.value)">
+                <div style="font-size:9px;color:var(--dim);margin-top:4px;">Path absolut ke file .xlsx atau variabel hasil download</div>
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📊 FILTER KOLOM</div>
+                <label class="prop-label">Kolom Filter 1</label>
+                <input class="prop-input" id="pe-esw-filter-col1" placeholder="e.g. L" style="width:80px;" oninput="saveProp('filterCol1',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Filter 1</label>
+                <input class="prop-input" id="pe-esw-filter-col1-label" placeholder="e.g. Waktu Gagal PU" oninput="saveProp('filterCol1Label',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Kolom Filter 2</label>
+                <input class="prop-input" id="pe-esw-filter-col2" placeholder="e.g. J" style="width:80px;" oninput="saveProp('filterCol2',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Filter 2</label>
+                <input class="prop-input" id="pe-esw-filter-col2-label" placeholder="e.g. Waktu Pickup" oninput="saveProp('filterCol2Label',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Kondisi Filter</label>
+                <select class="prop-input prop-select" id="pe-esw-filter-condition" onchange="saveProp('filterCondition',this.value)">
+                  <option value="Blank (kosong)">Blank (kosong)</option>
+                  <option value="Tidak Blank (berisi)">Tidak Blank (berisi)</option>
+                </select>
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📋 PENGAMBILAN DATA</div>
+                <label class="prop-label">Kolom Data (AWB)</label>
+                <input class="prop-input" id="pe-esw-data-column" placeholder="e.g. B" style="width:80px;" oninput="saveProp('dataColumn',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Data</label>
+                <input class="prop-input" id="pe-esw-data-column-label" placeholder="e.g. Nomor AWB" oninput="saveProp('dataColumnLabel',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Baris Header</label>
+                <input class="prop-input" type="number" id="pe-esw-header-row" min="1" oninput="saveProp('headerRow',+this.value)">
+                <label class="prop-label" style="margin-top:6px;">Batch Size</label>
+                <input class="prop-input" type="number" id="pe-esw-batch-size" min="1" max="10000" oninput="saveProp('batchSize',+this.value)">
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">🌐 TARGET WEB</div>
+                <label class="prop-label">XPath Input Field</label>
+                <textarea class="prop-input" id="pe-esw-xpath-input" rows="2" placeholder="/html/body/div[2]/..." style="font-size:10px;font-family:monospace;" oninput="saveProp('xpathInput',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:6px;">XPath Tombol Submit</label>
+                <textarea class="prop-input" id="pe-esw-xpath-button" rows="2" placeholder="/html/body/div[2]/..." style="font-size:10px;font-family:monospace;" oninput="saveProp('xpathButton',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:6px;">Delay Antar Batch (ms)</label>
+                <input class="prop-input" type="number" id="pe-esw-delay-between" min="500" oninput="saveProp('delayBetweenBatch',+this.value)">
+                <label class="prop-label" style="margin-top:6px;">Delay Sebelum Klik (ms)</label>
+                <input class="prop-input" type="number" id="pe-esw-delay-before-click" min="0" oninput="saveProp('delayBeforeClick',+this.value)">
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📤 OUTPUT VARIABEL</div>
+                <label class="prop-label">Variabel Total Data</label>
+                <input class="prop-input" id="pe-esw-output-total-data" placeholder="e.g. totalData" oninput="saveProp('outputTotalData',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Variabel Total Batch</label>
+                <input class="prop-input" id="pe-esw-output-total-batch" placeholder="e.g. totalBatch" oninput="saveProp('outputTotalBatch',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Variabel Batch Selesai</label>
+                <input class="prop-input" id="pe-esw-output-batch-done" placeholder="e.g. batchSelesai" oninput="saveProp('outputBatchDone',this.value)">
               </div>
 
               <div class="prop-sep"></div>

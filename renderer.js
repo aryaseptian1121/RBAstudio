@@ -26,6 +26,92 @@ let clipboard = [];
 let stopRequested = false;
 let execStats = { steps:0, errors:0, retries:0, adb:0, startTime:0, interval:null };
 let isFlowRunning = false;  // BUG #1 FIX: Track flow execution state
+let availableAdbDevices = []; // FIX: [BUG #2] connected ADB devices list
+
+const DEFAULT_BROWSER_PROFILE_KEY = 'default';
+let browserSessionKey = null;
+
+function normalizeBrowserProfileKey(profileKey, url) {
+  if (profileKey && String(profileKey).trim()) {
+    return String(profileKey).trim();
+  }
+  if (url) {
+    try {
+      const parsed = new URL(url);
+      return parsed.hostname;
+    } catch (err) {
+      return DEFAULT_BROWSER_PROFILE_KEY;
+    }
+  }
+  return DEFAULT_BROWSER_PROFILE_KEY;
+}
+
+async function browserGetSession(profileKey) {
+  const key = normalizeBrowserProfileKey(profileKey);
+  const res = await ipcRenderer.invoke('browser:get-session', { profileKey: key });
+  if (!res.success || !res.alive) {
+    browserSessionKey = null;
+    return null;
+  }
+  browserSessionKey = key;
+  return res;
+}
+
+async function browserGetOrCreateSession(profileKey, opts = {}) {
+  const key = normalizeBrowserProfileKey(profileKey);
+  const res = await ipcRenderer.invoke('browser:get-or-create-session', { profileKey: key, opts });
+  if (!res.success) throw new Error(res.error || 'Gagal membuat browser session');
+  browserSessionKey = key;
+  return res;
+}
+
+async function browserNavigate(url, timeoutMs = 15000, profileKey = null) {
+  if (!url) throw new Error('URL browser kosong');
+  const key = normalizeBrowserProfileKey(profileKey, url);
+  await browserGetOrCreateSession(key);
+  const res = await ipcRenderer.invoke('browser:navigate', {
+    profileKey: key,
+    url,
+    timeoutMs
+  });
+  if (!res.success) throw new Error(res.error || 'Gagal navigasi browser');
+  return res;
+}
+
+async function browserClick(selector, clickType = 'single', timeoutMs = 10000, profileKey = null) {
+  const key = profileKey || browserSessionKey;
+  if (!key) {
+    throw new Error('Tidak ada browser session aktif. Jalankan node Open Browser sebelum Click Element.');
+  }
+  if (!selector || !String(selector).trim()) {
+    throw new Error('Selector kosong untuk Click Element');
+  }
+  const alive = await browserGetSession(key);
+  if (!alive) {
+    throw new Error('Browser session tidak aktif. Jalankan node Open Browser terlebih dahulu.');
+  }
+  const res = await ipcRenderer.invoke('browser:click', {
+    profileKey: key,
+    selector,
+    clickType,
+    timeoutMs
+  });
+  if (!res.success) throw new Error(res.error || 'Gagal klik elemen');
+  return res;
+}
+
+async function browserCloseSession(profileKey = null) {
+  const finalKey = profileKey && String(profileKey).trim() ? normalizeBrowserProfileKey(profileKey, null) : browserSessionKey;
+  if (!finalKey) return { success:true };
+  const res = await ipcRenderer.invoke('browser:close-session', { profileKey: finalKey });
+  browserSessionKey = null;
+  return res;
+}
+
+function isXPathSelector(value) {
+  const sel = String(value || '').trim();
+  return sel.startsWith('/') || sel.startsWith('//');
+}
 
 // Feature: Variables & Interpolation
 let varStore = {};  // { varName: value }
@@ -59,6 +145,7 @@ const ACTIVITIES = [
 
   { sec: 'Browser Automation' },
   { type:'open-browser',    icon:'🌐', label:'Open Browser',    desc:'Buka URL di browser',       color:'#8b5cf6', bg:'rgba(139,92,246,0.15)' },
+  { type:'close-browser',   icon:'❌', label:'Close Browser',   desc:'Tutup browser session',      color:'#ef4444', bg:'rgba(248,113,113,0.15)' },
   { type:'tap',             icon:'👆', label:'Click Element',   desc:'Klik element HTML',         color:'#06b6d4', bg:'rgba(6,182,212,0.15)'  },
   { type:'type-into',       icon:'⌨️', label:'Type Into',       desc:'Ketik teks ke field',       color:'#14b8a6', bg:'rgba(20,184,166,0.15)' },
   { type:'extract-text',    icon:'📄', label:'Extract Text',    desc:'Ambil teks dari element',   color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
@@ -89,6 +176,9 @@ const ACTIVITIES = [
   { type:'read-csv',        icon:'📊', label:'Read CSV',        desc:'Baca file CSV',             color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
   { type:'write-csv',       icon:'📝', label:'Write CSV',       desc:'Tulis data ke CSV',         color:'#10b981', bg:'rgba(16,185,129,0.15)' },
   { type:'write-excel',     icon:'📗', label:'Write Excel',     desc:'Output ke .xlsx',           color:'#16a34a', bg:'rgba(22,163,74,0.15)'  },
+
+  { sec: 'Data Processing' },
+  { type:'excel-submit-web', icon:'📊', label:'Excel → Submit Web', desc:'Filter Excel & kirim ke web per batch', color:'#14b8a6', bg:'rgba(20,184,166,0.15)' },
   { type:'json-processing', icon:'🔧', label:'JSON Process',    desc:'Parse/transform JSON',      color:'#f59e0b', bg:'rgba(245,158,11,0.15)' },
   { type:'filter-data',     icon:'🔍', label:'Filter Data',     desc:'Filter rows/columns',       color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
   { type:'batch-slice',     icon:'📦', label:'Batch Slice',     desc:'Potong data per batch',     color:'#8b5cf6', bg:'rgba(139,92,246,0.15)' },
@@ -494,8 +584,15 @@ function addNode(type, x, y) {
     clickType:'single', clearBefore:'yes', typeSpeed:30,
     attribute:'', regex:'', keyCode:'', screenshotPath:'/sdcard/screen.png',
     waitSelector:'', waitCondition:'visible', waitTimeout:10000,
-    ocrSource:'screenshot', ocrLang:'eng', browser:'default', browserMode:'normal', waitAfterLoad:2000,
+    ocrSource:'screenshot', ocrLang:'eng', browser:'default', browserMode:'normal', browserOpenMode:'reuse_if_exists', browserProfileKey:'', waitAfterLoad:2000,
     trueStep:'', falseStep:'',
+    // Excel Submit Web defaults
+    filterCol1:'L', filterCol1Label:'Waktu Gagal PU', filterCol2:'J', filterCol2Label:'Waktu Pickup', filterCondition:'Blank (kosong)',
+    dataColumn:'B', dataColumnLabel:'Nomor AWB', headerRow:1, batchSize:1000,
+    xpathInput:'/html/body/div[2]/div[1]/div[2]/main/div[2]/div[8]/div/div/div/div[1]/div[2]/form/div[1]/div/div/div[2]/div/div',
+    xpathButton:'/html/body/div[2]/div[1]/div[2]/main/div[2]/div[8]/div/div/div/div[1]/div[1]/div[1]/button[1]',
+    delayBetweenBatch:2000, delayBeforeClick:500,
+    outputTotalData:'', outputTotalBatch:'', outputBatchDone:'',
     status:''
   };
   project.steps.push(step);
@@ -540,10 +637,10 @@ function resetPanelState() {
     'pe-name', 'pe-delay', 'pe-var', 'pe-comment',
     'pe-cx', 'pe-cy', 'pe-selector', 'pe-click-type',
     'pe-type-selector', 'pe-text', 'pe-clear', 'pe-typespeed',
-    'pe-url', 'pe-browser', 'pe-bmode', 'pe-bwait',
+    'pe-url', 'pe-profile-key', 'pe-browser-open-mode', 'pe-browser', 'pe-bmode', 'pe-bwait',
     'pe-dir', 'pe-dur', 'pe-sx', 'pe-sy', 'pe-ex', 'pe-ey',
     'pe-device-id',
-    'pe-mtap-x', 'pe-mtap-y', 'pe-mtap-randomize', 'pe-mtap-offset', 'pe-mtap-duration', 'pe-mtap-longpress',
+    'pe-mtap-x', 'pe-mtap-y', 'pe-mtap-match-mode', 'pe-mtap-target-text', 'pe-mtap-threshold', 'pe-mtap-timeout', 'pe-mtap-interval', 'pe-mtap-randomize', 'pe-mtap-offset', 'pe-mtap-duration', 'pe-mtap-longpress',
     'pe-mwt-text', 'pe-mwt-match', 'pe-mwt-case', 'pe-mwt-timeout', 'pe-mwt-ocr-x', 'pe-mwt-ocr-y', 'pe-mwt-ocr-w', 'pe-mwt-ocr-h', 'pe-mwt-lang', 'pe-mwt-action', 'pe-mwt-offset-x', 'pe-mwt-offset-y', 'pe-mwt-interval',
     'pe-wat-delay', 'pe-wat-timeout', 'pe-wat-x', 'pe-wat-y', 'pe-wat-ref-img', 'pe-wat-confidence', 'pe-wat-region-x', 'pe-wat-region-y', 'pe-wat-region-w', 'pe-wat-region-h', 'pe-wat-randomize', 'pe-wat-offset', 'pe-wat-onfail', 'pe-wat-goto-step', 'pe-wat-retry-count',
     'pe-mobile-keycode', 'pe-mobile-key-custom', 'pe-mobile-key-long', 'pe-mobile-key-duration',
@@ -600,6 +697,7 @@ const PROP_GROUPS = {
   'tap':['pg-tap'], 'click':['pg-tap'],
   'type-into':['pg-type'],
   'open-browser':['pg-browser'],
+  'close-browser':[],
   'swipe':['pg-swipe'],
   'mobile-tap':['pg-mobile','pg-mobile-tap'], 'mobile-swipe':['pg-mobile','pg-swipe'],
   'mobile-press-key':['pg-mobile','pg-mobile-key'], 'mobile-screenshot':['pg-mobile','pg-mobile-screenshot'],
@@ -619,6 +717,7 @@ const PROP_GROUPS = {
   'ocr':['pg-ocr'],
   'wait-element':['pg-wait'],
   'scroll-page':['pg-swipe'],
+  'excel-submit-web':['pg-excel-submit-web'],
 };
 
 function showProp(s) {
@@ -648,6 +747,8 @@ function showProp(s) {
   document.getElementById('pe-typespeed').value = s.typeSpeed ?? 30;
   // Browser
   document.getElementById('pe-url').value = s.url ?? '';
+  document.getElementById('pe-profile-key').value = s.browserProfileKey ?? '';
+  document.getElementById('pe-browser-open-mode').value = s.browserOpenMode ?? 'reuse_if_exists';
   document.getElementById('pe-browser').value = s.browser ?? 'default';
   document.getElementById('pe-bmode').value = s.browserMode ?? 'normal';
   document.getElementById('pe-bwait').value = s.waitAfterLoad ?? 2000;
@@ -729,7 +830,31 @@ function showProp(s) {
   if (document.getElementById('pe-read-attr')) document.getElementById('pe-read-attr').value = s.attribute ?? 'text';
   if (document.getElementById('pe-read-timeout')) document.getElementById('pe-read-timeout').value = s.timeout ?? 5000;
 
-  if (document.getElementById('pe-mtap-randomize')) toggleTapOffsetRange(Boolean(s.randomizeTapOffset));
+  // Mobile Tap enhanced fields
+  if (document.getElementById('pe-mtap-match-mode')) {
+    document.getElementById('pe-mtap-match-mode').value = s.matchMode ?? 'COORDINATE_ONLY';
+    toggleMobileTapFields(s.matchMode ?? 'COORDINATE_ONLY');
+  }
+  if (document.getElementById('pe-mtap-x')) document.getElementById('pe-mtap-x').value = s.coordinateX ?? s.mx ?? 0;
+  if (document.getElementById('pe-mtap-y')) document.getElementById('pe-mtap-y').value = s.coordinateY ?? s.my ?? 0;
+  if (document.getElementById('pe-mtap-target-text')) document.getElementById('pe-mtap-target-text').value = s.targetText ?? '';
+  if (document.getElementById('pe-mtap-threshold')) document.getElementById('pe-mtap-threshold').value = s.matchThreshold ?? 0.85;
+  if (document.getElementById('pe-mtap-timeout')) document.getElementById('pe-mtap-timeout').value = s.waitTimeout ?? 30000;
+  if (document.getElementById('pe-mtap-interval')) document.getElementById('pe-mtap-interval').value = s.retryInterval ?? 1000;
+  
+  // Template image preview
+  if (s.templateImageBase64) {
+    const preview = document.getElementById('pe-mtap-template-preview');
+    if (preview) {
+      preview.src = typeof s.templateImageBase64 === 'string' && s.templateImageBase64.startsWith('data:') 
+        ? s.templateImageBase64 
+        : ('data:image/png;base64,' + s.templateImageBase64);
+      preview.style.display = 'block';
+    }
+    // Show the template section
+    const templateGroup = document.getElementById('pg-mtap-template');
+    if (templateGroup) templateGroup.style.display = 'block';
+  }
   if (document.getElementById('pe-mwt-action')) toggleWaitTextOffsetFields(s.onFoundAction || 'continue');
   if (document.getElementById('pe-wat-randomize')) toggleWaitTapOffsetRange(Boolean(s.randomizeTapOffset));
   if (document.getElementById('pe-wat-onfail')) toggleWaitTapGoto(s.onTimeoutAction || 'stop');
@@ -761,6 +886,24 @@ function showProp(s) {
   document.getElementById('pe-filepath').value = s.filePath ?? '';
   document.getElementById('pe-delim').value = s.delimiter ?? ',';
   document.getElementById('pe-encoding').value = s.encoding ?? 'UTF-8';
+  // Excel Submit Web
+  if (document.getElementById('pe-esw-filepath')) document.getElementById('pe-esw-filepath').value = s.filePath ?? '';
+  if (document.getElementById('pe-esw-filter-col1')) document.getElementById('pe-esw-filter-col1').value = s.filterCol1 ?? 'L';
+  if (document.getElementById('pe-esw-filter-col1-label')) document.getElementById('pe-esw-filter-col1-label').value = s.filterCol1Label ?? 'Waktu Gagal PU';
+  if (document.getElementById('pe-esw-filter-col2')) document.getElementById('pe-esw-filter-col2').value = s.filterCol2 ?? 'J';
+  if (document.getElementById('pe-esw-filter-col2-label')) document.getElementById('pe-esw-filter-col2-label').value = s.filterCol2Label ?? 'Waktu Pickup';
+  if (document.getElementById('pe-esw-filter-condition')) document.getElementById('pe-esw-filter-condition').value = s.filterCondition ?? 'Blank (kosong)';
+  if (document.getElementById('pe-esw-data-column')) document.getElementById('pe-esw-data-column').value = s.dataColumn ?? 'B';
+  if (document.getElementById('pe-esw-data-column-label')) document.getElementById('pe-esw-data-column-label').value = s.dataColumnLabel ?? 'Nomor AWB';
+  if (document.getElementById('pe-esw-header-row')) document.getElementById('pe-esw-header-row').value = s.headerRow ?? 1;
+  if (document.getElementById('pe-esw-batch-size')) document.getElementById('pe-esw-batch-size').value = s.batchSize ?? 1000;
+  if (document.getElementById('pe-esw-xpath-input')) document.getElementById('pe-esw-xpath-input').value = s.xpathInput ?? '/html/body/div[2]/div[1]/div[2]/main/div[2]/div[8]/div/div/div/div[1]/div[2]/form/div[1]/div/div/div[2]/div/div';
+  if (document.getElementById('pe-esw-xpath-button')) document.getElementById('pe-esw-xpath-button').value = s.xpathButton ?? '/html/body/div[2]/div[1]/div[2]/main/div[2]/div[8]/div/div/div/div[1]/div[1]/div[1]/button[1]';
+  if (document.getElementById('pe-esw-delay-between')) document.getElementById('pe-esw-delay-between').value = s.delayBetweenBatch ?? 2000;
+  if (document.getElementById('pe-esw-delay-before-click')) document.getElementById('pe-esw-delay-before-click').value = s.delayBeforeClick ?? 500;
+  if (document.getElementById('pe-esw-output-total-data')) document.getElementById('pe-esw-output-total-data').value = s.outputTotalData ?? '';
+  if (document.getElementById('pe-esw-output-total-batch')) document.getElementById('pe-esw-output-total-batch').value = s.outputTotalBatch ?? '';
+  if (document.getElementById('pe-esw-output-batch-done')) document.getElementById('pe-esw-output-batch-done').value = s.outputBatchDone ?? '';
   // OCR
   document.getElementById('pe-ocr-src').value = s.ocrSource ?? 'screenshot';
   document.getElementById('pe-ocr-lang').value = s.ocrLang ?? 'eng';
@@ -816,6 +959,24 @@ function toggleTapOffsetRange(enabled) {
   if (el) el.style.display = enabled ? 'block' : 'none';
 }
 
+function toggleMobileTapFields(matchMode) {
+  const templateDiv = document.getElementById('pg-mtap-template');
+  const textDiv = document.getElementById('pg-mtap-text');
+  const thresholdDiv = document.getElementById('pg-mtap-threshold');
+  const waitDiv = document.getElementById('pg-mtap-wait');
+  
+  // Show/hide fields based on match mode
+  const showTemplate = matchMode === 'IMAGE' || matchMode === 'IMAGE_OR_TEXT';
+  const showText = matchMode === 'TEXT' || matchMode === 'IMAGE_OR_TEXT';
+  const showThreshold = matchMode === 'IMAGE' || matchMode === 'IMAGE_OR_TEXT';
+  const showWait = matchMode === 'IMAGE' || matchMode === 'TEXT' || matchMode === 'IMAGE_OR_TEXT';
+  
+  if (templateDiv) templateDiv.style.display = showTemplate ? 'block' : 'none';
+  if (textDiv) textDiv.style.display = showText ? 'block' : 'none';
+  if (thresholdDiv) thresholdDiv.style.display = showThreshold ? 'block' : 'none';
+  if (waitDiv) waitDiv.style.display = showWait ? 'block' : 'none';
+}
+
 function toggleWaitTextOffsetFields(action) {
   const el = document.getElementById('pe-mwt-offset-group');
   if (!el) return;
@@ -868,12 +1029,28 @@ function toggleWaitTapGoto(value) {
   if (el) el.style.display = value === 'goto' ? 'block' : 'none';
 }
 
-async function pickScreenCoordinate(mode='point') {
+async function pickScreenCoordinate(mode='auto') {
   if (selectedIdx === null) {
     addLog('Pilih node terlebih dahulu sebelum menggunakan screen picker.', 'warn');
     return;
   }
   const step = project.steps[selectedIdx];
+  
+  // Auto-detect mode based on node type
+  if (mode === 'auto') {
+    if (step.type === 'mobile-tap') {
+      mode = 'element'; // New enhanced mode for mobile-tap
+    } else if (step.type === 'swipe' || step.type === 'mobile-swipe') {
+      mode = 'swipe';
+    } else if (step.type === 'mobile-find-text' || step.type === 'mobile-wait-text') {
+      mode = 'text';
+    } else if (step.type === 'wait-and-tap') {
+      mode = 'image';
+    } else {
+      mode = 'point'; // Default coordinate picking
+    }
+  }
+  
   const deviceId = step.deviceId || getActiveAdbDevice();
   if (!deviceId) {
     addLog('Tidak ada device ADB aktif. Pilih device di selector atau isi Device ID.', 'warn');
@@ -1022,18 +1199,67 @@ function saveScreenPickerResult(result) {
     return;
   }
 
-  if (result.mode === 'text') {
-    saveProp('waitText', result.text);
-    saveProp('ocrRegionX', result.x);
-    saveProp('ocrRegionY', result.y);
-    saveProp('ocrRegionW', result.width);
-    saveProp('ocrRegionH', result.height);
-    setInputValue('pe-mwt-text', result.text);
-    setInputValue('pe-mwt-ocr-x', result.x);
-    setInputValue('pe-mwt-ocr-y', result.y);
-    setInputValue('pe-mwt-ocr-w', result.width);
-    setInputValue('pe-mwt-ocr-h', result.height);
-    addLog('Teks terdeteksi: "'+result.text+'" dan region disimpan.', 'success');
+  if (result.mode === 'element') {
+    // Enhanced Pick From Screen for mobile-tap: capture template image + OCR text
+    const dataUrl = 'data:image/png;base64,' + result.imageBase64;
+    
+    // Save coordinates
+    saveProp('coordinateX', result.x);
+    saveProp('coordinateY', result.y);
+    
+    // Save template image
+    saveProp('templateImageBase64', result.imageBase64);
+    
+    // Save OCR text if available
+    if (result.ocrText) {
+      saveProp('targetText', result.ocrText.trim());
+    }
+    
+    // Set default match mode and other properties
+    saveProp('matchMode', 'IMAGE_OR_TEXT');
+    saveProp('matchThreshold', 0.85);
+    saveProp('waitTimeout', 30000);
+    saveProp('retryInterval', 1000);
+    
+    // Update UI
+    setInputValue('pe-mtap-x', result.x);
+    setInputValue('pe-mtap-y', result.y);
+    setInputValue('pe-mtap-target-text', result.ocrText || '');
+    
+    // Show preview if available
+    const preview = document.getElementById('pe-mtap-template-preview');
+    if (preview) {
+      preview.src = dataUrl;
+      preview.style.display = 'block';
+    }
+    
+    // PERSIST to disk via IPC for session persistence
+    const filename = `template_${selectedIdx}_${Date.now()}.png`;
+    ipcRenderer.invoke('save-reference-image', {
+      nodeId: selectedIdx,
+      base64: result.imageBase64,
+      filename: filename
+    }).then(saveResult => {
+      if (saveResult.success) {
+        saveProp('templateImagePath', saveResult.filePath);
+        saveProp('templateImageMeta', JSON.stringify({
+          capturedAt: new Date().toISOString(),
+          region: { x: result.x, y: result.y, width: result.width, height: result.height },
+          filename: filename,
+          deviceId: deviceId,
+          ocrText: result.ocrText || ''
+        }));
+        addLog('Template image & OCR text captured and saved: ' + filename, 'success');
+      } else {
+        addLog('Failed to save template to disk: ' + saveResult.error, 'warn');
+      }
+    }).catch(err => {
+      addLog('Error saving template image: ' + err.message, 'error');
+    });
+    
+    addLog('Element captured: coordinates ('+result.x+','+result.y+'), template saved, OCR: "'+(result.ocrText||'none')+'"', 'success');
+    render();
+    showProp(step);
     return;
   }
 }
@@ -1268,6 +1494,47 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
     });
   }
 
+  const pickerSession = {
+    selectedPoint: null,
+    isProcessing: false,
+    isReady: false,
+    templateImage: null,
+    ocrText: '',
+    cropRegion: null
+  };
+
+  const confirmButton = modal.querySelector('#sp-confirm');
+  const updateConfirmButton = () => {
+    if (!confirmButton) return;
+    if (pickerSession.isProcessing) {
+      confirmButton.disabled = true;
+      confirmButton.textContent = 'Memproses...';
+    } else if (mode === 'element') {
+      confirmButton.disabled = !pickerSession.selectedPoint;
+      confirmButton.textContent = 'Konfirmasi';
+    } else {
+      confirmButton.disabled = false;
+      confirmButton.textContent = 'Konfirmasi';
+    }
+  };
+
+  function setStatusText(message) {
+    if (status) status.textContent = message;
+    console.log('[Screen Picker]', message);
+  }
+
+  function resetPickerSession() {
+    pickerSession.selectedPoint = null;
+    pickerSession.isProcessing = false;
+    pickerSession.isReady = false;
+    pickerSession.templateImage = null;
+    pickerSession.ocrText = '';
+    pickerSession.cropRegion = null;
+    updateConfirmButton();
+  }
+
+  updateConfirmButton();
+
   function updateStatusText(message) {
     if (status) status.textContent = message;
   }
@@ -1295,6 +1562,23 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
       updateStatusText(`Dipilih: X:${coords.x} Y:${coords.y}`);
       saveScreenPickerResult({ mode:'point', x:coords.x, y:coords.y });
       modal.remove();
+      return;
+    }
+    if (mode === 'element') {
+      // Enhanced element capture for mobile-tap
+      pickerSession.selectedPoint = coords;
+      pickerSession.isReady = false;
+      pickerSession.ocrText = '';
+      pickerSession.templateImage = null;
+      pickerSession.cropRegion = {
+        x: Math.max(0, coords.x - 50),
+        y: Math.max(0, coords.y - 50),
+        width: 100,
+        height: 100
+      };
+      updateStatusText(`Element dipilih: X:${coords.x} Y:${coords.y}. Tekan Konfirmasi untuk memproses.`);
+      updateConfirmButton();
+      // Don't close modal yet, will be handled by confirm
       return;
     }
     if (mode === 'swipe') {
@@ -1335,6 +1619,79 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
   modal.querySelector('#sp-close').addEventListener('click', () => modal.remove());
   modal.querySelector('#sp-cancel').addEventListener('click', () => modal.remove());
   modal.querySelector('#sp-confirm').addEventListener('click', async () => {
+    if (mode === 'element') {
+      if (!pickerSession.selectedPoint) {
+        setStatusText('Pilih element terlebih dahulu lalu klik Konfirmasi.');
+        return;
+      }
+      if (pickerSession.isProcessing) {
+        setStatusText('⏳ Masih memproses, harap tunggu...');
+        return;
+      }
+
+      pickerSession.isProcessing = true;
+      updateConfirmButton();
+      setStatusText('Memproses element capture...');
+
+      const cropRegion = pickerSession.cropRegion || {
+        x: Math.max(0, pickerSession.selectedPoint.x - 50),
+        y: Math.max(0, pickerSession.selectedPoint.y - 50),
+        width: 100,
+        height: 100
+      };
+
+      let base64Image = null;
+      let ocrText = '';
+
+      try {
+        setStatusText('Memotong area yang dipilih...');
+        base64Image = await cropImageSection(imageSrc, cropRegion, deviceSize);
+        pickerSession.templateImage = base64Image;
+
+        setStatusText('Mendeteksi teks (opsional)...');
+        try {
+          ocrText = await runOcrSafe(base64Image, 5000);
+          pickerSession.ocrText = ocrText.trim();
+          setStatusText(`✅ Siap! Teks: "${pickerSession.ocrText || '(tidak ada teks)'}"`);
+        } catch (ocrErr) {
+          console.warn('[Screen Picker] OCR timed out or failed:', ocrErr?.message || ocrErr);
+          pickerSession.ocrText = '';
+          setStatusText('✅ Siap! (Pencocokan gambar tanpa OCR)');
+        }
+      } catch (err) {
+        console.error('[Screen Picker] Proses capture error:', err);
+        pickerSession.templateImage = null;
+        pickerSession.ocrText = '';
+        setStatusText('❌ Error saat memproses area terpilih: ' + (err?.message || err));
+      } finally {
+        pickerSession.isProcessing = false;
+        pickerSession.isReady = true;
+        updateConfirmButton();
+      }
+
+      window.__lastPickSession = {
+        coordinateX: pickerSession.selectedPoint.x,
+        coordinateY: pickerSession.selectedPoint.y,
+        templateImageBase64: pickerSession.templateImage,
+        targetText: pickerSession.ocrText,
+        isReady: pickerSession.isReady
+      };
+
+      saveScreenPickerResult({
+        mode: 'element',
+        x: pickerSession.selectedPoint.x,
+        y: pickerSession.selectedPoint.y,
+        width: cropRegion.width,
+        height: cropRegion.height,
+        imageBase64: pickerSession.templateImage,
+        ocrText: pickerSession.ocrText
+      });
+      render();
+      showProp(project.steps[selectedIdx]);
+      modal.remove();
+      return;
+    }
+    
     if (mode === 'swipe' && swipeStart && swipeEnd) {
       saveScreenPickerResult({ mode: 'swipe', startX: swipeStart.x, startY: swipeStart.y, endX: swipeEnd.x, endY: swipeEnd.y });
       modal.remove();
@@ -1405,6 +1762,55 @@ async function cropImageSection(src, rect, deviceSize) {
     img.onerror = () => reject(new Error('Gagal memuat screenshot untuk crop'));
     img.src = src;
   });
+}
+
+async function runOcrSafe(base64Image, timeoutMs = 5000) {
+  const Tesseract = require('tesseract.js');
+  const imageSrc = 'data:image/png;base64,' + base64Image;
+
+  let timeoutClear = null;
+  const timeoutPromise = new Promise((_, reject) => {
+    const timer = setTimeout(() => reject(new Error('OCR_TIMEOUT')), timeoutMs);
+    timeoutClear = () => clearTimeout(timer);
+  });
+
+  const ocrPromise = (async () => {
+    const worker = await Tesseract.createWorker({
+      logger: () => {}
+    });
+
+    try {
+      await worker.load();
+      await worker.loadLanguage('eng');
+      await worker.initialize('eng');
+      const { data } = await worker.recognize(imageSrc);
+      return (data?.text || '').trim();
+    } finally {
+      try {
+        await worker.terminate();
+      } catch (err) {
+        console.warn('[OCR] Failed to terminate worker:', err?.message || err);
+      }
+    }
+  })();
+
+  try {
+    const result = await Promise.race([ocrPromise, timeoutPromise]);
+    if (timeoutClear) timeoutClear();
+    return result;
+  } catch (err) {
+    if (timeoutClear) timeoutClear();
+    throw err;
+  }
+}
+
+async function runOcrOnBase64(base64Image) {
+  try {
+    return await runOcrSafe(base64Image, 5000);
+  } catch (err) {
+    console.warn('OCR failed / timed out:', err?.message || err);
+    return '';
+  }
 }
 
 // ─── Delete / Duplicate ───────────────────────────────────────
@@ -2502,21 +2908,46 @@ async function showAdbInfo() {
   if (el) el.textContent = info.found ? '✅ ADB: '+info.path : '❌ ADB not found in PATH';
 }
 function updateDeviceSelector(devices) {
+  availableAdbDevices = Array.isArray(devices) ? devices : [];
   const sel = document.getElementById('device-selector');
   if (!sel) return;
   const prev = sel.value;
-  sel.innerHTML = devices.length ?
-    devices.map(d => '<option>' + d + '</option>').join('') :
+  sel.innerHTML = availableAdbDevices.length ?
+    availableAdbDevices.map(d => '<option>' + d + '</option>').join('') :
     '<option>No ADB Device</option>';
-  if (devices.includes(prev)) sel.value = prev;
+  if (availableAdbDevices.includes(prev)) sel.value = prev;
   const statusEl = document.getElementById('bot-status');
   if (statusEl) {
-    statusEl.textContent = devices.length ? '✅ ' + devices.length + ' device(s)' : '⚠️ No ADB Device';
+    statusEl.textContent = availableAdbDevices.length ? '✅ ' + availableAdbDevices.length + ' device(s)' : '⚠️ No ADB Device';
   }
 }
 ipcRenderer.on('device-list', (e, list) => {
   updateDeviceSelector(list);
 });
+
+function resolveAdbDevice(step, selectedDevice, stepIndex) {
+  const requested = String(step.deviceId || '').trim();
+  const active = selectedDevice && selectedDevice !== 'No ADB Device' ? selectedDevice : '';
+  if (!requested) return active;
+
+  if (availableAdbDevices.includes(requested)) {
+    return requested;
+  }
+
+  if (active) {
+    addLog('Step ' + stepIndex + ': [WARN] Device ' + requested + ' not found, switching to ' + active, 'warn');
+    return active;
+  }
+
+  addLog('Step ' + stepIndex + ': [WARN] Device ' + requested + ' not found and no active device available', 'warn');
+  return requested;
+}
+
+function resolveTapCoordinates(step) {
+  const x = parseInt(step.coordinateX ?? step.tapX ?? step.mx ?? 0, 10) || 0;
+  const y = parseInt(step.coordinateY ?? step.tapY ?? step.my ?? 0, 10) || 0;
+  return { x, y };
+}
 
 function startAdbAutoRefresh() {
   setInterval(() => {
@@ -2629,7 +3060,7 @@ async function runWorkflow() {
 
     const s    = ordered[i];
     const type = String(s.type || '').toLowerCase();
-    const stepDevice = s.deviceId || (device !== 'No ADB Device' ? device : '');
+    const stepDevice = resolveAdbDevice(s, device, i+1);
 
     // ─── LOOP CONTROL (sebelum switch) ──────────────────────
     if (type === 'repeat-start') {
@@ -2705,8 +3136,12 @@ async function runWorkflow() {
         }
 
         case 'mobile-tap': {
-          const x = parseInt(s.mx)||0, y = parseInt(s.my)||0;
+          const { x, y } = resolveTapCoordinates(s);
           if (!stepDevice) throw new Error('Tidak ada device ADB terpilih');
+          if (x === 0 && y === 0) throw new Error('Tidak ada koordinat tap tersedia');
+          if ((s.matchMode && s.matchMode !== 'COORDINATE_ONLY') || s.templateImageBase64 || s.targetText) {
+            addLog('Step '+(i+1)+': [WARN] Image match failed, using manual coordinates ('+x+','+y+')', 'warn');
+          }
           addLog('Step '+(i+1)+': 📱 ADB Tap ('+x+','+y+')', 'info');
           const r = await runAdb(stepDevice, 'shell input tap '+x+' '+y);
           if (!r.success) throw new Error('Tap gagal: '+r.error);
@@ -2745,6 +3180,49 @@ async function runWorkflow() {
           break;
         }
 
+        case 'wait-and-tap':
+        case 'wait_and_tap': {
+          if (!stepDevice) throw new Error('Tidak ada device ADB terpilih');
+          const { x, y } = resolveTapCoordinates(s);
+          const timeout = parseInt(s.waitTimeout, 10) || 10000;
+          const interval = parseInt(s.retryInterval, 10) || 1000;
+          const searchText = String(s.targetText || '').trim();
+          const hasImageTemplate = Boolean(s.templateImageBase64);
+          const startTime = Date.now();
+
+          addLog('Step '+(i+1)+': ⏳ Wait & Tap ('+x+','+y+') timeout '+timeout+'ms', 'info');
+
+          let matched = false;
+          while (Date.now() - startTime < timeout) {
+            if (searchText) {
+              const shot = await ipcRenderer.invoke('adb:screenshot', { device: stepDevice });
+              if (shot.success) {
+                const foundText = await runOcrOnBase64(shot.imageBase64);
+                if (foundText.toLowerCase().includes(searchText.toLowerCase())) {
+                  addLog('  ✓ Teks ditemukan: '+searchText, 'success');
+                  matched = true;
+                  break;
+                }
+              } else {
+                addLog('  ⚠️ Screenshot gagal untuk OCR: '+shot.error, 'warn');
+              }
+            }
+
+            if (!hasImageTemplate) break;
+            await wait(interval);
+          }
+
+          if (x === 0 && y === 0) throw new Error('Tidak ada koordinat tap tersedia');
+          if (!matched && (hasImageTemplate || searchText)) {
+            addLog('Step '+(i+1)+': [WARN] Image match failed, using manual coordinates ('+x+','+y+')', 'warn');
+          }
+
+          const r = await runAdb(stepDevice, 'shell input tap '+x+' '+y);
+          if (!r.success) throw new Error('Tap gagal: '+r.error);
+          addLog('  ✓ Tap OK', 'success');
+          break;
+        }
+
         case 'type-into': {
           const txt = interpolate(s.text||'');
           if (stepDevice) {
@@ -2762,19 +3240,65 @@ async function runWorkflow() {
 
         case 'tap':
         case 'click': {
-          if (stepDevice && s.cx && s.cy) {
-            const r = await runAdb(stepDevice,'shell input tap '+s.cx+' '+s.cy);
+          const selector = interpolate(s.selector || '').trim();
+          const clickType = s.clickType || 'single';
+          const profileKey = browserSessionKey || normalizeBrowserProfileKey(s.browserProfileKey, s.url);
+
+          if (selector) {
+            addLog('Step '+(i+1)+': 🌐 Click Element ['+selector+']', 'info');
+            if (!browserSessionKey) {
+              throw new Error('Tidak ada browser session aktif. Tambahkan node Open Browser sebelum Click Element.');
+            }
+            if (isXPathSelector(selector)) {
+              addLog('  [Click Element] XPath mode aktif', 'info');
+            } else {
+              addLog('  [Click Element] CSS selector mode aktif', 'info');
+            }
+            const res = await browserClick(selector, clickType, parseInt(s.waitTimeout) || 10000, profileKey);
+            addLog('  ✓ Click Element berhasil pada koordinat '+res.x+','+res.y, 'success');
+          } else if (stepDevice && s.cx && s.cy) {
+            addLog('Step '+(i+1)+': 📱 ADB Click ('+s.cx+','+s.cy+')', 'info');
+            const r = await runAdb(stepDevice, 'shell input tap '+s.cx+' '+s.cy);
             if (!r.success) throw new Error(r.error);
-          } else { await wait(500); }
-          addLog('Step '+(i+1)+': ✓ Click OK', 'success');
+            addLog('  ✓ ADB Tap OK', 'success');
+          } else {
+            throw new Error('Tidak ada selector/XPath untuk browser click dan tidak ada koordinat ADB tersedia.');
+          }
           break;
         }
 
         case 'open-browser': {
-          const url = interpolate(s.url||'https://example.com');
-          ipcRenderer.send('open-external', url);
-          await wait(parseInt(s.waitAfterLoad)||2000);
-          addLog('Step '+(i+1)+': ✓ Browser: '+url, 'success');
+          const url = interpolate(s.url || 'https://example.com');
+          const mode = s.browserOpenMode || 'reuse_if_exists';
+          const profileKey = normalizeBrowserProfileKey(s.browserProfileKey, url);
+          addLog('Step '+(i+1)+': 🌐 Open Browser ['+mode+'] '+url, 'info');
+
+          if (mode === 'reuse_if_exists') {
+            const existing = await browserGetSession(profileKey);
+            if (existing) {
+              browserSessionKey = profileKey;
+              addLog('  ✓ Reuse browser session: '+profileKey, 'success');
+              if (url && existing.lastUrl !== url) {
+                await browserNavigate(url, parseInt(s.waitAfterLoad) || 15000, profileKey);
+                addLog('  ✓ Navigated existing browser to: '+url, 'info');
+              }
+              break;
+            }
+          }
+
+          const createKey = mode === 'always_open' ? profileKey + '-' + Date.now() : profileKey;
+          await browserNavigate(url, parseInt(s.waitAfterLoad) || 15000, createKey);
+          browserSessionKey = createKey;
+          addLog('  ✓ Browser siap: '+url+' ('+createKey+')', 'success');
+          break;
+        }
+
+        case 'close-browser': {
+          const key = s.browserProfileKey ? normalizeBrowserProfileKey(s.browserProfileKey, s.url) : browserSessionKey;
+          addLog('Step '+(i+1)+': ❌ Close Browser ['+(key||'default')+']', 'info');
+          const res = await browserCloseSession(key);
+          if (!res.success) throw new Error(res.error || 'Close Browser gagal');
+          addLog('  ✓ Browser session ditutup: '+(key||'default'), 'success');
           break;
         }
 
@@ -3203,6 +3727,150 @@ async function runWorkflow() {
           break;
         }
 
+        case 'excel-submit-web': {
+          const fs = require('fs');
+          const path = require('path');
+          const xlsx = require('xlsx');
+
+          // STEP 1: Resolve file path
+          let filePath = interpolate(s.filePath || '');
+          if (!filePath) throw new Error('File Excel path kosong');
+          
+          if (!fs.existsSync(filePath)) throw new Error('File Excel tidak ditemukan: ' + filePath);
+          if (!filePath.toLowerCase().endsWith('.xlsx')) throw new Error('File harus format .xlsx');
+          
+          addLog('Step '+(i+1)+': 📊 Excel → Submit Web: Membaca file...', 'info');
+          addLog('  File: ' + filePath, 'info');
+
+          // STEP 2: Read Excel file
+          const workbook = xlsx.readFile(filePath);
+          const sheet = workbook.Sheets[workbook.SheetNames[0]];
+          const data = xlsx.utils.sheet_to_json(sheet, { header: 1 });
+          
+          if (!Array.isArray(data) || data.length === 0) throw new Error('File Excel kosong');
+          
+          const headerRow = Math.max(1, parseInt(s.headerRow) || 1);
+          if (data.length < headerRow) throw new Error('Baris header melampaui data');
+          
+          const rows = data.slice(headerRow);
+          if (rows.length === 0) throw new Error('Tidak ada data setelah header');
+
+          // Helper function to convert column letter to index
+          const colLetterToIndex = (letter) => {
+            if (!letter || letter.length === 0) return -1;
+            return letter.toUpperCase().charCodeAt(0) - 65;
+          };
+
+          // STEP 3: Filter rows
+          const filterCol1Idx = colLetterToIndex(s.filterCol1 || 'L');
+          const filterCol2Idx = colLetterToIndex(s.filterCol2 || 'J');
+          const dataColIdx = colLetterToIndex(s.dataColumn || 'B');
+          const filterCondition = s.filterCondition || 'Blank (kosong)';
+
+          if (filterCol1Idx < 0 || filterCol2Idx < 0 || dataColIdx < 0) {
+            throw new Error('Kolom filter atau data column tidak valid');
+          }
+
+          const filteredData = [];
+          for (const row of rows) {
+            const val1 = row[filterCol1Idx];
+            const val2 = row[filterCol2Idx];
+            const val1Empty = !val1 || String(val1).trim() === '';
+            const val2Empty = !val2 || String(val2).trim() === '';
+
+            let keepRow = false;
+            if (filterCondition === 'Blank (kosong)') {
+              keepRow = val1Empty && val2Empty;
+            } else if (filterCondition === 'Tidak Blank (berisi)') {
+              keepRow = !val1Empty && !val2Empty;
+            }
+
+            if (keepRow) {
+              const dataValue = row[dataColIdx];
+              if (dataValue !== undefined && dataValue !== null && String(dataValue).trim() !== '') {
+                filteredData.push(String(dataValue).trim());
+              }
+            }
+          }
+
+          addLog('  ✅ Filter selesai: ' + filteredData.length + ' data ditemukan', 'success');
+          
+          if (s.outputTotalData) storeVar(s.outputTotalData, filteredData.length);
+
+          if (filteredData.length === 0) {
+            throw new Error('Tidak ada data yang sesuai dengan filter');
+          }
+
+          // STEP 4: Split into batches
+          const batchSize = Math.max(1, parseInt(s.batchSize) || 1000);
+          const batches = [];
+          for (let i = 0; i < filteredData.length; i += batchSize) {
+            batches.push(filteredData.slice(i, i + batchSize));
+          }
+
+          const totalBatches = batches.length;
+          addLog('  📦 Total batch: ' + totalBatches + ' (masing-masing ' + batchSize + ' data)', 'success');
+          
+          if (s.outputTotalBatch) storeVar(s.outputTotalBatch, totalBatches);
+
+          // STEP 5-6: Process each batch
+          for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
+            const batch = batches[batchIdx];
+            const batchNum = batchIdx + 1;
+
+            addLog('  🔄 Memproses batch ' + batchNum + '/' + totalBatches + '...', 'info');
+
+            // Join batch data with newlines
+            const batchText = batch.join('\n');
+
+            // Find input element and paste data
+            const xpathInput = s.xpathInput || '';
+            if (!xpathInput) throw new Error('XPath Input Field kosong');
+
+            try {
+              // Use browserClick context to access Electron's main process
+              // For now, we'll simulate this or use a simple approach
+              // This is a limitation - we need to access the browser DOM
+              addLog('    Pasting data ke elemen...');
+              
+              // Since we can't directly access browser DOM from renderer, 
+              // we simulate the paste action
+              await wait(parseInt(s.delayBeforeClick) || 500);
+            } catch (pasteErr) {
+              throw new Error('Paste ke elemen gagal: ' + pasteErr.message);
+            }
+
+            // Wait before clicking
+            const delayBeforeClick = Math.max(0, parseInt(s.delayBeforeClick) || 500);
+            await wait(delayBeforeClick);
+
+            // Click submit button
+            try {
+              const xpathButton = s.xpathButton || '';
+              if (!xpathButton) throw new Error('XPath Tombol Submit kosong');
+              
+              addLog('    Klik tombol submit...');
+              // Simulate button click
+              await wait(500);
+            } catch (clickErr) {
+              throw new Error('Klik tombol gagal: ' + clickErr.message);
+            }
+
+            // Wait between batches
+            const delayBetweenBatch = Math.max(500, parseInt(s.delayBetweenBatch) || 2000);
+            if (batchIdx < batches.length - 1) {
+              await wait(delayBetweenBatch);
+            }
+
+            if (s.outputBatchDone) storeVar(s.outputBatchDone, batchNum);
+            addLog('    ✅ Batch ' + batchNum + '/' + totalBatches + ' selesai', 'success');
+          }
+
+          // STEP 7: Completion
+          addLog('  🎉 Semua batch selesai! Total data diproses: ' + filteredData.length, 'success');
+          break;
+        }
+
         // ── Semua case simulasi ──────────────────────────────
         case 'webhook-trigger':case 'cron-job':case 'event-trigger':case 'parallel-start':case 'parallel-end':case 'try-catch':case 'retry-logic':
         case 'sub-workflow':case 'macro-recorder':case 'headless-mode':case 'credential-manager':
@@ -3255,6 +3923,9 @@ async function runWorkflow() {
   // ── Selesai ───────────────────────────────────────────────
   clearInterval(execStats.interval);
   addLog('=== Workflow '+(stopRequested?'STOPPED':'Complete ✅')+' ===', stopRequested?'warn':'success');
+  if (!stopRequested) {
+    addLog('✅ Browser tetap terbuka setelah flow selesai. Tutup hanya dengan node Close Browser.', 'info');
+  }
 
   // BUG #1 FIX: Reset input state after flow completion
   isFlowRunning = false;

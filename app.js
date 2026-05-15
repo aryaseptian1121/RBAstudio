@@ -8,6 +8,10 @@ const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
 
+// Import activity executors
+const { executeSmartMobileTap } = require('./activities/SmartMobileTap');
+const { executeWaitAndTap }     = require('./activities/WaitAndTap');
+
 const projectsFile = path.join(app.getPath("userData"), "rba-workflows.json");
 const settingsFile  = path.join(app.getPath("userData"), "rba-settings.json");
 
@@ -2372,6 +2376,22 @@ async function runWorkflow() {
         // MOBILE ADB — TAP
         // ══════════════════════════════════════════════════
         case 'mobile-tap': {
+          const useSmartTap = (s.matchMode && s.matchMode !== 'COORDINATE') || s.templateImageBase64 || s.targetText || s.referenceImageBase64;
+          if (useSmartTap) {
+            try {
+              const context = {
+                activeDevice: stepDevice,
+                deviceId: stepDevice,
+                log: (msg, level = 'info') => addLog('Step ' + (i+1) + ': ' + msg, level)
+              };
+              const result = await executeSmartMobileTap(project.steps[i], context);
+              addLog('Step ' + (i+1) + ': ✅ Smart Mobile Tap completed via ' + result.method, 'success');
+            } catch (err) {
+              throw new Error('Smart Mobile Tap failed: ' + err.message);
+            }
+            break;
+          }
+
           const x = parseInt(s.mx) || 0;
           const y = parseInt(s.my) || 0;
           if (!stepDevice || stepDevice === 'No ADB Device') throw new Error('Tidak ada device ADB terpilih');
@@ -2379,6 +2399,44 @@ async function runWorkflow() {
           const r = await runAdb(stepDevice, 'shell input tap ' + x + ' ' + y);
           if (!r.success) throw new Error('ADB tap gagal: ' + r.error);
           addLog('  Tap berhasil', 'success');
+          break;
+        }
+
+        // ══════════════════════════════════════════════════
+        // MOBILE ADB — SMART TAP (Enhanced with visual matching)
+        // ══════════════════════════════════════════════════
+        case 'mobile-tap-enhanced':
+        case 'smart-mobile-tap': {
+          try {
+            const context = {
+              activeDevice: stepDevice,
+              deviceId: stepDevice,
+              log: (msg, level = 'info') => addLog('Step ' + (i+1) + ': ' + msg, level)
+            };
+            const result = await executeSmartMobileTap(project.steps[i], context);
+            addLog('Step ' + (i+1) + ': ✅ Smart Mobile Tap completed via ' + result.method, 'success');
+          } catch (err) {
+            throw new Error('Smart Mobile Tap failed: ' + err.message);
+          }
+          break;
+        }
+
+        // ══════════════════════════════════════════════════
+        // MOBILE ADB — WAIT & TAP (Wait for element, then tap)
+        // ══════════════════════════════════════════════════
+        case 'wait-and-tap':
+        case 'wait_and_tap': {
+          try {
+            const context = {
+              activeDevice: stepDevice,
+              deviceId: stepDevice,
+              log: (msg, level = 'info') => addLog('Step ' + (i+1) + ': ' + msg, level)
+            };
+            const result = await executeWaitAndTap(project.steps[i], context);
+            addLog('Step ' + (i+1) + ': ✅ Wait & Tap completed via ' + result.method, 'success');
+          } catch (err) {
+            throw new Error('Wait & Tap failed: ' + err.message);
+          }
           break;
         }
 

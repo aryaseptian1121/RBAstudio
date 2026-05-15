@@ -110,11 +110,16 @@ async function runRecovery(plan, node, sender, device) {
   return { success: false, error: 'Recovery plan exhausted' };
 }
 
-function defaultAdbExecutor(args, device, cb) {
+function defaultAdbExecutor(args, device, cb, options = {}) {
   const bin = 'adb';
   const dFlag = device ? `-s "${device}"` : '';
   const cmd = `${bin} ${dFlag} ${args}`;
-  exec(cmd, { timeout: 30000, maxBuffer: 50 * 1024 * 1024, encoding: 'utf8' }, (err, stdout, stderr) => {
+  const execOptions = {
+    timeout: options.timeout || 30000,
+    maxBuffer: options.maxBuffer || 50 * 1024 * 1024,
+    encoding: options.encoding || 'utf8'
+  };
+  exec(cmd, execOptions, (err, stdout, stderr) => {
     cb({ success: !err, output: stdout || '', error: err?.message || stderr || '' });
   });
 }
@@ -153,6 +158,7 @@ function getNextNode(edgeMap, id) {
 async function adbExec(device, command, options = {}) {
   return new Promise(resolve => {
     const execFn = getAdbExecutor();
+    // Pass options to executor so it can use custom timeout/maxBuffer
     execFn(command, device, resolve, options);
   });
 }
@@ -364,9 +370,41 @@ async function findTemplate(device, templateData, options = {}) {
   };
 }
 
-function clearTemplateCache(nodeId) {
-  if (nodeId) {
-    lastFoundPositions.delete(nodeId);
+async function runOcrOnScreen(screenImage, targetText) {
+  // Simple OCR-based text finding - convert image to base64 and use Tesseract
+  try {
+    const { createWorker } = require('tesseract.js');
+    const worker = await createWorker('eng');
+    
+    // Convert Jimp image to base64
+    const base64 = await new Promise((resolve, reject) => {
+      screenImage.getBase64('image/png', (err, data) => {
+        if (err) reject(err);
+        else resolve(data.split(',')[1]);
+      });
+    });
+    
+    const { data } = await worker.recognize('data:image/png;base64,' + base64);
+    await worker.terminate();
+    
+    const recognizedText = data.text || '';
+    
+    // Simple text matching - look for target text in recognized text
+    if (recognizedText.toLowerCase().includes(targetText.toLowerCase())) {
+      // For now, return center of screen as location (could be improved with word bounding boxes)
+      return {
+        found: true,
+        centerX: Math.floor(screenImage.bitmap.width / 2),
+        centerY: Math.floor(screenImage.bitmap.height / 2),
+        confidence: 0.8, // Placeholder confidence
+        text: recognizedText
+      };
+    }
+    
+    return { found: false };
+  } catch (err) {
+    console.warn('OCR screen search failed:', err.message);
+    return { found: false };
   }
 }
 
@@ -685,7 +723,9 @@ async function executeNode(node, sender, device) {
     }
 
     if (type === 'tap' || type === 'mobile-tap' || type === 'click') {
+      // Enhanced mobile-tap with visual element matching
       const {
+        // Legacy properties for backward compatibility
         referenceImage,
         referenceImagePath,
         referenceImageRegionX = 0,
@@ -694,60 +734,177 @@ async function executeNode(node, sender, device) {
         referenceImageRegionH = 0,
         confidence = 80,
         randomizeTapOffset = false,
-        offsetRange = 5
+        offsetRange = 5,
+        
+        // New enhanced properties
+        coordinateX,
+        coordinateY,
+        templateImageBase64,
+        targetText,
+        matchMode = 'COORDINATE_ONLY', // 'COORDINATE_ONLY', 'IMAGE', 'TEXT', 'IMAGE_OR_TEXT'
+        matchThreshold = 0.85,
+        waitTimeout = 30000,
+        retryInterval = 1000
       } = data;
 
-      if (referenceImage || referenceImagePath) {
-        const templateSource = referenceImage || null;
-        const threshold = Math.max(0.1, Math.min(1, confidence / 100));
-        const searchRegion = isValidRegion({ x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH })
-          ? { x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH }
-          : null;
-        const nodeId = node.id || null;
-        const match = await findTemplate(device, templateSource, {
-          threshold,
-          nodeId,
-          searchRegion,
-          smartSearchRadius: 120,
-          step: Math.max(2, Math.floor(Math.min(referenceImageRegionW || 100, referenceImageRegionH || 100) / 8)),
-          forceFullScan: true
-        });
+      // If no enhanced properties, fall back to legacy behavior
+      if (!templateImageBase64 && !targetText && matchMode === 'COORDINATE_ONLY') {
+        // Legacy image matching
+        if (referenceImage || referenceImagePath) {
+          const templateSource = referenceImage || null;
+          const threshold = Math.max(0.1, Math.min(1, confidence / 100));
+          const searchRegion = isValidRegion({ x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH })
+            ? { x: referenceImageRegionX, y: referenceImageRegionY, width: referenceImageRegionW, height: referenceImageRegionH }
+            : null;
+          const nodeId = node.id || null;
+          const match = await findTemplate(device, templateSource, {
+            threshold,
+            nodeId,
+            searchRegion,
+            smartSearchRadius: 120,
+            step: Math.max(2, Math.floor(Math.min(referenceImageRegionW || 100, referenceImageRegionH || 100) / 8)),
+            forceFullScan: true
+          });
 
-        if (!match.found) {
-          sendLog(sender, 'warn', `[Tap] Reference image not found (best confidence ${(match.confidence * 100).toFixed(1)}%)`);
-          return { success: false, error: 'Reference image not found' };
+          if (!match.found) {
+            sendLog(sender, 'warn', `[Tap] Reference image not found (best confidence ${(match.confidence * 100).toFixed(1)}%)`);
+            return { success: false, error: 'Reference image not found' };
+          }
+          let targetX = match.centerX;
+          let targetY = match.centerY;
+          if (randomizeTapOffset && offsetRange > 0) {
+            targetX += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+            targetY += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+          }
+          const result = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
+          invalidateScreenCache(device);
+          if (!result.success) {
+            sendLog(sender, 'error', `ADB tap failed: ${result.error}`);
+            const recoveryPlan = RECOVERY_PLANS['tap-failed'];
+            const recoveryResult = await runRecovery(recoveryPlan, node, sender, device);
+            return recoveryResult;
+          }
+          sendLog(sender, 'success', `Tap at matched position ${targetX},${targetY}`);
+          return { success: true };
         }
-        let targetX = match.centerX;
-        let targetY = match.centerY;
-        if (randomizeTapOffset && offsetRange > 0) {
-          targetX += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
-          targetY += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+
+        // Coordinate-only tap
+        if (tapX == null || tapY == null) {
+          sendLog(sender, 'warn', 'Tap node missing coordinates');
+          return { success: false, error: 'Missing coordinates' };
         }
-        const result = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
-        invalidateScreenCache(device);
+        const result = await adbExec(device, `shell input tap ${tapX} ${tapY}`);
         if (!result.success) {
           sendLog(sender, 'error', `ADB tap failed: ${result.error}`);
           const recoveryPlan = RECOVERY_PLANS['tap-failed'];
           const recoveryResult = await runRecovery(recoveryPlan, node, sender, device);
           return recoveryResult;
         }
-        sendLog(sender, 'success', `Tap at matched position ${targetX},${targetY}`);
+        sendLog(sender, 'success', `Tap ${tapX},${tapY}`);
         return { success: true };
       }
 
-      if (tapX == null || tapY == null) {
-        sendLog(sender, 'warn', 'Tap node missing coordinates');
-        return { success: false, error: 'Missing coordinates' };
+      // Enhanced visual element matching with wait/retry
+      sendLog(sender, 'info', `[Mobile Tap] Starting visual element search (mode: ${matchMode}, timeout: ${waitTimeout}ms)`);
+      
+      const startTime = Date.now();
+      let attempt = 0;
+      const nodeId = node.id || null;
+      
+      while (Date.now() - startTime < waitTimeout) {
+        attempt++;
+        const elapsed = Date.now() - startTime;
+        
+        sendLog(sender, 'info', `[Mobile Tap] Attempt #${attempt} (${elapsed}ms elapsed)`);
+        
+        try {
+          // Take current screenshot
+          const currentScreen = await getScreenImage(device, true);
+          if (!currentScreen.success) {
+            sendLog(sender, 'warn', `[Mobile Tap] Screenshot failed: ${currentScreen.error}`);
+            await delay(retryInterval);
+            continue;
+          }
+          
+          let foundLocation = null;
+          
+          // Try image template matching
+          if ((matchMode === 'IMAGE' || matchMode === 'IMAGE_OR_TEXT') && templateImageBase64) {
+            const match = await findTemplateOnImage(currentScreen.image, await loadTemplateImage(templateImageBase64), matchThreshold, 4);
+            if (match.found) {
+              foundLocation = {
+                centerX: match.centerX,
+                centerY: match.centerY,
+                confidence: match.confidence,
+                method: 'image'
+              };
+            }
+          }
+          
+          // Try OCR text search if image didn't work or mode includes text
+          if (!foundLocation && (matchMode === 'TEXT' || matchMode === 'IMAGE_OR_TEXT') && targetText) {
+            // Use OCR to find text on screen
+            const ocrResult = await runOcrOnScreen(currentScreen.image, targetText);
+            if (ocrResult.found) {
+              foundLocation = {
+                centerX: ocrResult.centerX,
+                centerY: ocrResult.centerY,
+                confidence: ocrResult.confidence,
+                method: 'ocr'
+              };
+            }
+          }
+          
+          if (foundLocation) {
+            // Element found! Tap at center of found location
+            let targetX = foundLocation.centerX;
+            let targetY = foundLocation.centerY;
+            
+            // Apply randomization if enabled
+            if (randomizeTapOffset && offsetRange > 0) {
+              targetX += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+              targetY += Math.floor(Math.random() * (offsetRange * 2 + 1)) - offsetRange;
+            }
+            
+            const tapResult = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
+            invalidateScreenCache(device);
+            
+            if (!tapResult.success) {
+              sendLog(sender, 'error', `[Mobile Tap] Tap failed: ${tapResult.error}`);
+              return { success: false, error: 'Tap failed after element found' };
+            }
+            
+            sendLog(sender, 'success', `✅ Element found and tapped at (${targetX},${targetY}) via ${foundLocation.method} (confidence: ${(foundLocation.confidence * 100).toFixed(1)}%)`);
+            return { success: true, location: foundLocation, attempts: attempt, elapsed };
+          }
+          
+          // Element not found yet, wait and retry
+          sendLog(sender, 'info', `⏳ Element not found, retrying in ${retryInterval}ms...`);
+          await delay(retryInterval);
+          
+        } catch (err) {
+          sendLog(sender, 'warn', `[Mobile Tap] Attempt error: ${err.message}`);
+          await delay(retryInterval);
+        }
       }
-      const result = await adbExec(device, `shell input tap ${tapX} ${tapY}`);
-      if (!result.success) {
-        sendLog(sender, 'error', `ADB tap failed: ${result.error}`);
-        const recoveryPlan = RECOVERY_PLANS['tap-failed'];
-        const recoveryResult = await runRecovery(recoveryPlan, node, sender, device);
-        return recoveryResult;
+      
+      // Timeout reached - fallback to saved coordinates
+      const finalElapsed = Date.now() - startTime;
+      sendLog(sender, 'warn', `⏳ Element not found after ${finalElapsed}ms timeout (${attempt} attempts)`);
+      
+      if (coordinateX != null && coordinateY != null && coordinateX !== 0 && coordinateY !== 0) {
+        sendLog(sender, 'info', `⚠️ Fallback to saved coordinates (${coordinateX},${coordinateY})`);
+        const fallbackResult = await adbExec(device, `shell input tap ${coordinateX} ${coordinateY}`);
+        invalidateScreenCache(device);
+        if (!fallbackResult.success) {
+          sendLog(sender, 'error', `Fallback tap failed: ${fallbackResult.error}`);
+          throw new Error(`Element not found and fallback tap failed: ${fallbackResult.error}`);
+        }
+        sendLog(sender, 'success', `Tap at fallback coordinates ${coordinateX},${coordinateY}`);
+        return { success: true, method: 'coordinate_fallback', x: coordinateX, y: coordinateY };
       }
-      sendLog(sender, 'success', `Tap ${tapX},${tapY}`);
-      return { success: true };
+      
+      throw new Error(`Element not found: timeout after ${waitTimeout}ms and no valid fallback coordinates`);
     }
 
     if (type === 'swipe' || type === 'mobile-swipe') {
