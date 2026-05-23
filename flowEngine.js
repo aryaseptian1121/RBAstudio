@@ -3,6 +3,7 @@ const fs = require('fs');
 const Jimp = require('jimp');
 const ScreenVerifier = require('./screenVerifier');
 const { waitForText, destroyOcrWorker } = require('./ocrReader');
+const { ExcelLoopEngine, setBrowserManager: setExcelLoopBrowserManager } = require('./src/services/ExcelLoopEngine');
 
 let isRunning = false;
 let currentSender = null;
@@ -471,6 +472,24 @@ async function executeNode(node, sender, device) {
       const ms = duration || 0;
       sendLog(sender, 'info', `Delay ${ms}ms`);
       await delay(ms);
+      return { success: true };
+    }
+
+    if (type === 'excel-loop') {
+      const engine = new ExcelLoopEngine(data, (state) => {
+        if (sender) {
+          sender.send('excel-loop-state', state);
+        }
+        if (state.current_row != null) {
+          data.current_row = state.current_row;
+          data.total_processed = state.total_processed;
+          data.total_skipped = state.total_skipped;
+          data.current_value = state.current_value;
+        }
+      }, (level, message) => {
+        if (sender) sender.send('excel-loop-log', { level: level.toUpperCase(), message });
+      });
+      await engine.run();
       return { success: true };
     }
 
@@ -1066,4 +1085,4 @@ function stopFlow() {
   cleanupFlow();
 }
 
-module.exports = { runFlow, stopFlow, setAdbExecutor, cleanupFlow };
+module.exports = { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager };

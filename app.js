@@ -262,6 +262,10 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .hdr-logo{font-weight:800;font-size:14px;letter-spacing:.04em;background:linear-gradient(135deg,#60a5fa,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .hdr-project{font-size:13px;font-weight:600;color:var(--dim2);cursor:pointer;padding:4px 10px;border-radius:8px;border:1px solid var(--border2);}
 .hdr-project:hover{border-color:var(--accent);color:var(--text);}
+.hdr-project-input{width:min(360px,100%);min-width:200px;padding:4px 10px;border-radius:8px;border:1px solid var(--border2);background:rgba(255,255,255,0.08);color:var(--text);font-size:13px;font-family:inherit;outline:none;}
+.hdr-project-input:focus{border-color:var(--accent);background:rgba(255,255,255,0.12);}
+.wf-item-edit-input{width:100%;min-width:200px;padding:8px 10px;border-radius:8px;border:1px solid var(--border2);background:rgba(255,255,255,0.08);color:var(--text);font-size:12px;font-family:inherit;outline:none;}
+.wf-item-edit-input:focus{border-color:var(--accent);background:rgba(255,255,255,0.12);}
 .hdr-spacer{flex:1;}
 .hdr-badge{display:flex;align-items:center;gap:6px;font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:rgba(255,255,255,0.03);cursor:pointer;}
 .hdr-badge.online{border-color:var(--green);color:var(--green);background:rgba(16,185,129,0.1);}
@@ -447,6 +451,9 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .wf-item-actions{display:flex;gap:6px;}
 .wf-item-btn{border:none;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer;font-weight:600;}
 .wf-item-btn.open{background:rgba(59,130,246,0.15);color:#93c5fd;}
+.wf-item-btn.rename{background:rgba(148,163,184,0.12);color:#cbd5e1;}
+.wf-item-btn.save{background:rgba(16,185,129,0.12);color:#86efac;}
+.wf-item-btn.cancel{background:rgba(148,163,184,0.12);color:#cbd5e1;}
 .wf-item-btn.del{background:rgba(239,68,68,0.12);color:var(--red);}
 
 /* ── SETTINGS ────────────────────────────────────── */
@@ -518,7 +525,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     <!-- HEADER -->
     <header>
       <div class="hdr-logo">RBA Studio Pro</div>
-      <div class="hdr-project" id="proj-name" ondblclick="renameProject()">Untitled Flow ✏️</div>
+      <div class="hdr-project" id="proj-name" onclick="enterHeaderRename()">Untitled Flow ✏️</div>
       <div class="hdr-spacer"></div>
       <div class="rec-badge" id="rec-badge"><div class="rec-dot"></div>REC</div>
       <div class="hdr-badge offline" id="bot-status"><div class="hdr-dot"></div>OFFLINE</div>
@@ -1087,6 +1094,9 @@ let currentName = 'Untitled Flow';
 let workflows = [];
 let selectedIdx = null;     // selected node index
 let selectedEdgeId = null;  // selected edge id
+let headerRenameOriginal = '';
+let rowRenameId = null;
+let rowRenameOriginalName = '';
 let historyStack = [], redoStack = [];
 
 // Canvas interaction state
@@ -1460,12 +1470,73 @@ function switchView(id) {
 }
 
 // ─── Project Name ─────────────────────────────────────────────
-function updateProjName() {
-  document.getElementById('proj-name').textContent = currentName + ' ✏️';
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g,'&amp;')
+    .replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;')
+    .replace(/"/g,'&quot;')
+    .replace(/'/g,'&#39;');
 }
+
+function updateProjName() {
+  const el = document.getElementById('proj-name');
+  if (!el || el.dataset.editing === 'true') return;
+  el.textContent = currentName + ' ✏️';
+}
+
+function flashElement(el, color) {
+  if (!el) return;
+  const previous = el.style.borderColor || '';
+  el.style.borderColor = color;
+  setTimeout(() => { el.style.borderColor = previous || 'var(--border2)'; }, 300);
+}
+
+function enterHeaderRename() {
+  const el = document.getElementById('proj-name');
+  if (!el || el.dataset.editing === 'true') return;
+  el.dataset.editing = 'true';
+  headerRenameOriginal = currentName;
+  el.innerHTML = '';
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.id = 'proj-name-input';
+  input.className = 'hdr-project-input';
+  input.value = currentName;
+  input.maxLength = 50;
+  input.autocomplete = 'off';
+  input.onkeydown = e => {
+    if (e.key === 'Enter') { e.preventDefault(); finishHeaderRename(true); }
+    if (e.key === 'Escape') { e.preventDefault(); finishHeaderRename(false); }
+  };
+  input.onblur = () => finishHeaderRename(true);
+  el.appendChild(input);
+  input.focus();
+  input.select();
+}
+
+function finishHeaderRename(save) {
+  const el = document.getElementById('proj-name');
+  if (!el || el.dataset.editing !== 'true') return;
+  const input = document.getElementById('proj-name-input');
+  el.dataset.editing = 'false';
+  if (!input) { updateProjName(); return; }
+  const value = String(input.value || '').trim();
+  if (save && value) {
+    currentName = value.substring(0, 50);
+    project.name = currentName;
+    updateProjName();
+    saveCurrentProject();
+    flashElement(el, '#22c55e');
+    return;
+  }
+  currentName = headerRenameOriginal;
+  updateProjName();
+  if (save && !value) flashElement(el, '#ef4444');
+}
+
 function renameProject() {
-  const n = prompt('Nama workflow:', currentName);
-  if (n && n.trim()) { currentName = n.trim(); project.name = currentName; updateProjName(); }
+  enterHeaderRename();
 }
 
 // ─── Add Node ─────────────────────────────────────────────────
@@ -2197,6 +2268,46 @@ async function loadSavedProjects() {
   workflows = await ipcRenderer.invoke('get-saved-workflows');
   renderSavedList();
 }
+function handleRowRenameKey(e, id) {
+  if (e.key === 'Enter') { e.preventDefault(); saveRowRename(id); }
+  if (e.key === 'Escape') { e.preventDefault(); cancelRowRename(); }
+}
+function handleRowRenameBlur(e, id) {
+  const next = e.relatedTarget;
+  if (next && next.classList && next.classList.contains('wf-item-btn')) return;
+  saveRowRename(id);
+}
+async function saveRowRename(id) {
+  const wf = workflows.find(i => i.id === id);
+  const input = document.getElementById('wf-edit-input-' + id);
+  rowRenameId = null;
+  if (!wf || !input) { renderSavedList(); return; }
+  const value = String(input.value || '').trim();
+  if (!value) { renderSavedList(); return; }
+  wf.name = value.substring(0, 50);
+  const list = await ipcRenderer.invoke('save-workflow', {
+    ...wf,
+    updatedAt: new Date().toISOString()
+  });
+  workflows = list;
+  renderSavedList();
+  flashElement(document.getElementById('wf-row-' + id), '#22c55e');
+}
+function cancelRowRename() {
+  rowRenameId = null;
+  renderSavedList();
+}
+function startRowRename(id) {
+  const wf = workflows.find(i => i.id === id);
+  if (!wf) return;
+  rowRenameId = id;
+  rowRenameOriginalName = wf.name;
+  renderSavedList();
+  setTimeout(() => {
+    const input = document.getElementById('wf-edit-input-' + id);
+    if (input) { input.focus(); input.select(); }
+  }, 0);
+}
 function renderSavedList() {
   const el = document.getElementById('wf-list');
   if (!el) return;
@@ -2204,19 +2315,19 @@ function renderSavedList() {
     el.innerHTML = '<div style="color:var(--dim);text-align:center;padding:24px;font-size:12px;">Belum ada workflow tersimpan</div>';
     return;
   }
-  el.innerHTML = workflows.map(wf => \'
-    <div class="wf-item">
-      <div class="wf-item-ico">⚡</div>
-      <div class="wf-item-body">
-        <div class="wf-item-name">\' + wf.name + '</div>
-        <div class="wf-item-meta">\' + (wf.steps||[]).length + ' steps · \' + new Date(wf.updatedAt||Date.now()).toLocaleString() + '</div>
-      </div>
-      <div class="wf-item-actions">
-        <button class="wf-item-btn open" onclick="openProject(\' + wf.id + ')">Open</button>
-        <button class="wf-item-btn del"  onclick="deleteProject(\' + wf.id + ')">Del</button>
-      </div>
-    </div>
-  \').join('');
+  el.innerHTML = workflows.map(wf => {
+    const editing = rowRenameId === wf.id;
+    const rowName = escapeHtml(wf.name || 'Untitled Flow');
+    return '\n    <div class="wf-item" id="wf-row-' + wf.id + '">\n      <div class="wf-item-ico">⚡</div>\n      <div class="wf-item-body">\n        ' + (editing ?
+      '<input id="wf-edit-input-' + wf.id + '" class="wf-item-edit-input" value="' + rowName + '" maxlength="50" onkeydown="handleRowRenameKey(event,' + JSON.stringify(wf.id) + ')" onblur="handleRowRenameBlur(event,' + JSON.stringify(wf.id) + ')">' :
+      '<div class="wf-item-name">' + rowName + '</div>') +
+      '<div class="wf-item-meta">' + (wf.steps||[]).length + ' steps · ' + new Date(wf.updatedAt||Date.now()).toLocaleString() + '</div>\n      </div>\n      <div class="wf-item-actions">\n        <button class="wf-item-btn open" onclick="openProject(' + JSON.stringify(wf.id) + ')">Open</button>\n        ' + (editing ?
+      '<button class="wf-item-btn save" onclick="saveRowRename(' + JSON.stringify(wf.id) + ')">Save</button>' +
+      '<button class="wf-item-btn cancel" onclick="cancelRowRename()">Cancel</button>' :
+      '<button class="wf-item-btn rename" onclick="startRowRename(' + JSON.stringify(wf.id) + ')">Rename</button>' +
+      '<button class="wf-item-btn del" onclick="deleteProject(' + JSON.stringify(wf.id) + ')">Del</button>') +
+    '\n      </div>\n    </div>\n';
+  }).join('');
 }
 async function openProject(id) {
   const wf = await ipcRenderer.invoke('load-workflow', id);
@@ -3731,7 +3842,7 @@ window.addEventListener('keydown', e => {
 })();
 </script>
 </body>
-</html>;
+</html>`;
 
 app.whenReady().then(createWindow);
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

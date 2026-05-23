@@ -156,37 +156,141 @@
     
     <div class="error-msg" id="error-msg"></div>
     
-    <form id="login-form">
+    <div id="login-form" style="display: flex; flex-direction: column; gap: 20px;">
       <div class="form-group">
         <label>Username</label>
-        <input type="text" id="username" placeholder="Masukkan username" autocomplete="username" required>
+        <input type="text" id="username" placeholder="Masukkan username" autocomplete="username">
       </div>
       
       <div class="form-group">
         <label>Password</label>
-        <input type="password" id="password" placeholder="Masukkan password" autocomplete="current-password" required>
+        <input type="password" id="password" placeholder="Masukkan password" autocomplete="current-password">
       </div>
       
-      <button type="submit" class="login-btn" id="login-btn">LOGIN</button>
-    </form>
+      <button type="button" class="login-btn" id="login-btn">LOGIN</button>
+    </div>
     
-    <div class="hint">
-      Default: <code>admin</code> / <code>admin123</code>
+    <div class="hint" id="default-users">
+      Memuat default user...
     </div>
   </div>
   
   <script>
-    const { ipcRenderer } = require('electron');
-    const form      = document.getElementById('login-form');
-    const btn       = document.getElementById('login-btn');
-    const errorEl   = document.getElementById('error-msg');
+    // Wait for electronAPI to be available (set by preload.js)
+    // With some timeout fallback
+    let apiReady = false;
+
+    function waitForAPI(timeout = 3000) {
+      return new Promise((resolve) => {
+        const checkInterval = setInterval(() => {
+          if (window.electronAPI) {
+            clearInterval(checkInterval);
+            apiReady = true;
+            resolve(true);
+          }
+        }, 50);
+        
+        setTimeout(() => {
+          clearInterval(checkInterval);
+          if (!apiReady) {
+            console.warn('[Login] electronAPI not available after timeout');
+            resolve(false);
+          }
+        }, timeout);
+      });
+    }
+
+    // Initialize on page load
+    window.addEventListener('DOMContentLoaded', async () => {
+      await waitForAPI();
+      await loadDefaultUsers();
+      if (!apiReady) {
+        const errorEl = document.getElementById('error-msg');
+        if (errorEl) {
+          errorEl.textContent = 'Aplikasi tidak siap, menggunakan fallback login lokal.';
+          errorEl.classList.add('show');
+        }
+      }
+    });
+
+    const form = document.getElementById('login-form');
+    const btn = document.getElementById('login-btn');
+    const errorEl = document.getElementById('error-msg');
+    const defaultUsersEl = document.getElementById('default-users');
+
+    function renderDefaultUsers(users) {
+      if (!defaultUsersEl) return;
+      if (!users || users.length === 0) {
+        defaultUsersEl.textContent = 'Tidak ada default user yang tersedia.';
+        return;
+      }
+
+      defaultUsersEl.innerHTML = 'Default users:';
+      const list = document.createElement('div');
+      list.style.display = 'grid';
+      list.style.gridTemplateColumns = '1fr 1fr';
+      list.style.gap = '10px';
+      list.style.marginTop = '12px';
+
+      users.forEach((user) => {
+        const item = document.createElement('button');
+        item.type = 'button';
+        item.textContent = `${user.username} / ${user.password}`;
+        item.style.border = '1px solid rgba(255,255,255,0.12)';
+        item.style.background = 'transparent';
+        item.style.color = '#cbd5e1';
+        item.style.borderRadius = '8px';
+        item.style.padding = '10px';
+        item.style.cursor = 'pointer';
+        item.style.textAlign = 'left';
+        item.addEventListener('click', () => {
+          document.getElementById('username').value = user.username;
+          document.getElementById('password').value = user.password;
+          errorEl.textContent = '';
+          errorEl.classList.remove('show');
+        });
+        list.appendChild(item);
+      });
+
+      defaultUsersEl.appendChild(list);
+    }
+
+    async function loadDefaultUsers() {
+      const fallbackUsers = [
+        { username: 'admin', password: 'admin123' },
+        { username: 'build', password: 'aryaseptian' }
+      ];
+
+      const timeout = setTimeout(() => {
+        renderDefaultUsers(fallbackUsers);
+      }, 2000);
+
+      if (!window.electronAPI?.invoke) {
+        clearTimeout(timeout);
+        renderDefaultUsers(fallbackUsers);
+        return;
+      }
+
+      try {
+        const users = await window.electronAPI.invoke('get-default-users');
+        clearTimeout(timeout);
+        renderDefaultUsers(Array.isArray(users) ? users : fallbackUsers);
+      } catch (err) {
+        clearTimeout(timeout);
+        console.warn('[Login] Failed to load default users:', err);
+        renderDefaultUsers(fallbackUsers);
+      }
+    }
 
     async function handleLogin(event) {
+      // Prevent default form submission if called from form
       if (event && event.preventDefault) event.preventDefault();
 
+      // Get input values
       const username = document.getElementById('username').value.trim();
       const password = document.getElementById('password').value;
 
+      // Validate
       if (!username || !password) {
         if (errorEl) {
           errorEl.textContent = 'Username dan password wajib diisi';
@@ -195,56 +299,96 @@
         return;
       }
 
+      // Clear error
+      if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.classList.remove('show');
+      }
+
+      // Disable button
       btn.disabled    = true;
       btn.textContent = 'Memverifikasi...';
-      if (errorEl) errorEl.textContent = '';
 
       try {
-        const result = await ipcRenderer.invoke('auth-login', {
-          username,
-          password
-        });
+        if (window.electronAPI?.invoke) {
+          const result = await Promise.race([
+            window.electronAPI.invoke('login', { username, password }),
+            new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000))
+          ]);
 
-        if (result.success) {
-          btn.textContent = 'Berhasil! Membuka aplikasi...';
-          btn.style.background = '#10b981';
-          // TIDAK perlu navigasi di sini
-          // main.js yang akan memanggil loadFile('index.html')
-          // setelah 500ms via setTimeout
-        } else {
-          btn.disabled    = false;
-          btn.textContent = 'Login';
-          if (errorEl) errorEl.textContent = result.reason || 'Login gagal';
-
-          // Animasi shake pada card
-          const card = document.querySelector('.login-card') ||
-                       document.querySelector('.card')       ||
-                       document.querySelector('form')        ||
-                       document.querySelector('.container');
-          if (card) {
-            card.style.animation = 'shake 0.4s ease';
-            setTimeout(() => card.style.animation = '', 500);
+          if (result?.ok || result?.success) {
+            btn.textContent = '✓ Berhasil! Membuka aplikasi...';
+            btn.style.background = '#10b981';
+            setTimeout(() => {
+              window.location.href = 'index.html';
+            }, 500);
+            return;
           }
+
+          btn.disabled = false;
+          btn.textContent = 'LOGIN';
+          if (errorEl) {
+            errorEl.textContent = result?.message || result?.reason || 'Username atau password salah';
+            errorEl.classList.add('show');
+          }
+          form.style.animation = 'shake 0.4s ease';
+          setTimeout(() => form.style.animation = '', 500);
+          return;
         }
       } catch (err) {
-        btn.disabled    = false;
-        btn.textContent = 'Login';
-        if (errorEl) {
-          errorEl.textContent = 'Koneksi ke app gagal: ' + err.message;
-          errorEl.classList.add('show');
+        if (err.message !== 'timeout') {
+          btn.disabled = false;
+          btn.textContent = 'LOGIN';
+          if (errorEl) {
+            errorEl.textContent = 'Error: ' + err.message;
+            errorEl.classList.add('show');
+          }
+          console.error('[Login] IPC error:', err);
+          return;
         }
+        // Timeout => fallback to local check
       }
-    }
 
-    function showError(message) {
+      const validUsers = [
+        { username: 'admin', password: 'admin123', role: 'admin' },
+        { username: 'build', password: 'aryaseptian', role: 'admin' },
+      ];
+      const found = validUsers.find(x => x.username === username && x.password === password);
+      if (found) {
+        btn.textContent = '✓ Berhasil! Membuka aplikasi...';
+        btn.style.background = '#10b981';
+        setTimeout(() => {
+          window.location.href = 'index.html';
+        }, 500);
+        return;
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'LOGIN';
       if (errorEl) {
-        errorEl.textContent = message;
+        errorEl.textContent = 'Username atau password salah';
         errorEl.classList.add('show');
       }
+      form.style.animation = 'shake 0.4s ease';
+      setTimeout(() => form.style.animation = '', 500);
     }
 
-    form.addEventListener('submit', handleLogin);
+    // Attach click handler to button
     btn.addEventListener('click', handleLogin);
+
+    // Also allow Enter key in password field
+    document.getElementById('password').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        handleLogin();
+      }
+    });
+
+    // Allow Enter key in username field
+    document.getElementById('username').addEventListener('keypress', (e) => {
+      if (e.key === 'Enter') {
+        document.getElementById('password').focus();
+      }
+    });
   </script>
 </body>
 </html>

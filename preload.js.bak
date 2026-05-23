@@ -1,0 +1,145 @@
+/**
+ * Preload Script — Electron Main to Renderer IPC Bridge
+ * RBA Studio Pro 2.0 — Secure context isolation
+ */
+
+const { contextBridge, ipcRenderer } = require('electron');
+
+// Expose safe APIs to renderer process via contextBridge
+contextBridge.exposeInMainWorld('electronAPI', {
+  // ═════════════════════════════════════════════════════════
+  // Generic IPC invoke for all channels
+  // ═════════════════════════════════════════════════════════
+  invoke: (channel, data) => ipcRenderer.invoke(channel, data),
+
+  // ═════════════════════════════════════════════════════════
+  // Excel Loop specific
+  // ═════════════════════════════════════════════════════════
+  excelLoopRun: (config) => ipcRenderer.invoke('excel-loop-run', config),
+  excelLoopPause: () => ipcRenderer.invoke('excel-loop-pause'),
+  excelLoopResume: () => ipcRenderer.invoke('excel-loop-resume'),
+  excelLoopStop: () => ipcRenderer.invoke('excel-loop-stop'),
+
+  // ═════════════════════════════════════════════════════════
+  // Browser automation
+  // ═════════════════════════════════════════════════════════
+  openChromDebug: (port = 9222) => ipcRenderer.invoke('open-chrome-debug', { port }),
+  testBrowserUrl: (url, matchMode, port) => 
+    ipcRenderer.invoke('test-browser-url', { url, matchMode, port }),
+  testFocusWindow: (windowTitle, exeName, restoreIfMinimized) =>
+    ipcRenderer.invoke('test-focus-window', { windowTitle, exeName, restoreIfMinimized }),
+  scanOpenWindows: () => ipcRenderer.invoke('scan-open-windows'),
+
+  // ═════════════════════════════════════════════════════════
+  // Coordinates & capture
+  // ═════════════════════════════════════════════════════════
+  captureClickCoordinate: () => ipcRenderer.invoke('capture-click-coordinate'),
+  captureClickCoordinates: () => ipcRenderer.invoke('capture-click-coordinates'),
+
+  // ═════════════════════════════════════════════════════════
+  // File dialog
+  // ═════════════════════════════════════════════════════════
+  openFileDialog: (options) => ipcRenderer.invoke('open-file-dialog', options),
+  dialogOpenFile: (options) => ipcRenderer.invoke('dialog:openFile', options),
+
+  // ═════════════════════════════════════════════════════════
+  // Clipboard
+  // ═════════════════════════════════════════════════════════
+  setClipboard: (text) => ipcRenderer.invoke('set-clipboard', text),
+  getClipboard: () => ipcRenderer.invoke('get-clipboard'),
+
+  // ═════════════════════════════════════════════════════════
+  // Browser session management
+  // ═════════════════════════════════════════════════════════
+  browserGetOrCreateSession: (profileKey, opts) =>
+    ipcRenderer.invoke('browser:get-or-create-session', { profileKey, opts }),
+  browserGetSession: (profileKey) =>
+    ipcRenderer.invoke('browser:get-session', { profileKey }),
+  browserNavigate: (profileKey, url, timeoutMs) =>
+    ipcRenderer.invoke('browser:navigate', { profileKey, url, timeoutMs }),
+  browserClick: (profileKey, selector, clickType, timeoutMs) =>
+    ipcRenderer.invoke('browser:click', { profileKey, selector, clickType, timeoutMs }),
+  browserCloseSession: (profileKey) =>
+    ipcRenderer.invoke('browser:close-session', { profileKey }),
+
+  // ═════════════════════════════════════════════════════════
+  // Workflows & config
+  // ═════════════════════════════════════════════════════════
+  getSavedWorkflows: () => ipcRenderer.invoke('get-saved-workflows'),
+  saveWorkflow: (wf) => ipcRenderer.invoke('save-workflow', wf),
+  loadWorkflow: (id) => ipcRenderer.invoke('load-workflow', id),
+  deleteWorkflow: (id) => ipcRenderer.invoke('delete-workflow', id),
+  getSettings: () => ipcRenderer.invoke('get-settings'),
+  saveSettings: (s) => ipcRenderer.invoke('save-settings', s),
+
+  // ═════════════════════════════════════════════════════════
+  // ADB
+  // ═════════════════════════════════════════════════════════
+  runAdb: (device, args) => ipcRenderer.invoke('run-adb', { device, args }),
+  launchScrcpy: (device, args) => ipcRenderer.invoke('launch-scrcpy', { device, args }),
+  adbInfo: () => ipcRenderer.invoke('adb-info'),
+  adbGetScreenSize: (device) => ipcRenderer.invoke('adb:get-screen-size', { device }),
+  adbScreenshot: (device) => ipcRenderer.invoke('adb:screenshot', { device }),
+  adbConnectWifi: (ip, port) => ipcRenderer.invoke('adb-connect-wifi', { ip, port }),
+
+  // ═════════════════════════════════════════════════════════
+  // Misc
+  // ═════════════════════════════════════════════════════════
+  getOutputPath: (filename) => ipcRenderer.invoke('get-output-path', filename),
+  startWebhook: (port) => ipcRenderer.invoke('start-webhook', { port }),
+  stopWebhook: () => ipcRenderer.invoke('stop-webhook'),
+
+  // ═════════════════════════════════════════════════════════
+  // Auth
+  // ═════════════════════════════════════════════════════════
+  authLogin: (username, password) => ipcRenderer.invoke('auth-login', { username, password }),
+  authChangePassword: (username, oldPassword, newPassword) =>
+    ipcRenderer.invoke('auth-change-password', { username, oldPassword, newPassword }),
+  authLogout: () => ipcRenderer.invoke('auth-logout'),
+  authCheck: () => ipcRenderer.invoke('auth-check'),
+  on: (channel, callback) => {
+    const handler = (event, ...args) => callback(...args);
+    ipcRenderer.on(channel, handler);
+    return () => ipcRenderer.removeListener(channel, handler);
+  },
+  removeListener: (channel, listener) => ipcRenderer.removeListener(channel, listener),
+
+  // ═════════════════════════════════════════════════════════
+  // Reference images
+  // ═════════════════════════════════════════════════════════
+  saveReferenceImage: (nodeId, base64, filename) =>
+    ipcRenderer.invoke('save-reference-image', { nodeId, base64, filename }),
+  loadReferenceImage: (filePath) =>
+    ipcRenderer.invoke('load-reference-image', { filePath }),
+  listReferenceImages: (nodeId) =>
+    ipcRenderer.invoke('list-reference-images', { nodeId }),
+
+  // ═════════════════════════════════════════════════════════
+  // IPC event listening (for async updates)
+  // ═════════════════════════════════════════════════════════
+  onExcelLoopState: (callback) => {
+    const handler = (event, state) => callback(state);
+    ipcRenderer.on('excel-loop-state', handler);
+    return () => ipcRenderer.removeListener('excel-loop-state', handler);
+  },
+
+  onExcelLoopLog: (callback) => {
+    const handler = (event, log) => callback(log);
+    ipcRenderer.on('excel-loop-log', handler);
+    return () => ipcRenderer.removeListener('excel-loop-log', handler);
+  },
+
+  onBinaryError: (callback) => {
+    const handler = (event, error) => callback(error);
+    ipcRenderer.on('binary-error', handler);
+    return () => ipcRenderer.removeListener('binary-error', handler);
+  },
+
+  onDeviceList: (callback) => {
+    const handler = (event, devices) => callback(devices);
+    ipcRenderer.on('device-list', handler);
+    return () => ipcRenderer.removeListener('device-list', handler);
+  },
+});
+
+console.log('[Preload] contextBridge initialized');

@@ -7,6 +7,10 @@ const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
+const { ExcelLoopEngine } = require('./src/services/ExcelLoopEngine');
+const WinAuto = require('./src/services/WindowsAutomation');
+const BrowserManager = require('./src/services/BrowserManager');
+const { resolveTarget } = require('./src/engine/TargetResolver');
 
 // NEW: Get correct base path for both dev and production
 function getBasePath() {
@@ -228,8 +232,191 @@ app.commandLine.appendSwitch('disable-background-timer-throttling'); // CHANGED
 app.commandLine.appendSwitch('disable-renderer-backgrounding'); // CHANGED
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows'); // CHANGED
 
-const { runFlow, stopFlow, setAdbExecutor, cleanupFlow } = require('./flowEngine'); // CHANGED
+const { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager } = require('./flowEngine'); // CHANGED
 setAdbExecutor(pool.adb.bind(pool)); // CHANGED
+setExcelLoopBrowserManager(pool.browserManager?.bind(pool));
+
+let currentExcelLoopEngine = null;
+
+ipcMain.handle('open-file-dialog', async (e, options) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  return await dialog.showOpenDialog(parent, options);
+});
+
+ipcMain.handle('dialog:openFile', async (e, options = {}) => {
+  const parent = BrowserWindow.fromWebContents(e.sender) || mainWindow;
+  return await dialog.showOpenDialog(parent, {
+    properties: ['openFile'],
+    filters: options.filters || [{ name: 'Excel', extensions: ['xlsx', 'xls'] }],
+    ...options,
+  });
+});
+
+ipcMain.handle('excel-loop-run', async (e, config) => {
+  if (currentExcelLoopEngine) {
+    return { success:false, error: 'Excel loop already running' };
+  }
+  currentExcelLoopEngine = new ExcelLoopEngine(config,
+    state => e.sender.send('excel-loop-state', state),
+    (level, message) => e.sender.send('excel-loop-log', { level: level.toUpperCase(), message })
+  );
+  try {
+    await currentExcelLoopEngine.run();
+    return { success:true };
+  } catch (err) {
+    return { success:false, error: err.message || String(err) };
+  } finally {
+    currentExcelLoopEngine = null;
+  }
+});
+
+ipcMain.handle('excel-loop-pause', async () => {
+  currentExcelLoopEngine?.pause();
+  return { success: true };
+});
+
+ipcMain.handle('excel-loop-resume', async () => {
+  currentExcelLoopEngine?.resume();
+  return { success: true };
+});
+
+ipcMain.handle('capture-click-coordinates', async () => {
+  try {
+    const coords = await WinAuto.captureClickCoordinates(4000);
+    if (!coords) return { success: false, error: 'Timeout menunggu klik koordinat' };
+    return { success: true, coords };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('excel-loop-stop', async () => {
+  currentExcelLoopEngine?.stop();
+  currentExcelLoopEngine = null;
+  return { success: true };
+});
+
+// ─────────────────────────────────────────
+// CLIPBOARD HANDLERS
+// ─────────────────────────────────────────
+ipcMain.handle('set-clipboard', async (event, text) => {
+  try {
+    require('electron').clipboard.writeText(String(text || ''));
+    return { ok: true, message: 'Clipboard updated' };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+ipcMain.handle('get-clipboard', async () => {
+  try {
+    const text = require('electron').clipboard.readText();
+    return { ok: true, text };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+// ─────────────────────────────────────────
+// BROWSER ELEMENT CONTROL
+// ─────────────────────────────────────────
+ipcMain.handle('click-element', async (event, { selector, x, y }) => {
+  try {
+    // If selector provided, try to click element via CDP
+    if (selector) {
+      const BM = require('./src/services/BrowserManager');
+      const sessions = BM.getSessions?.() || [];
+      if (sessions.length > 0) {
+        const session = sessions[0];
+        const result = await BrowserManager.click(session.profileKey, selector);
+        return { ok: result.success, message: result.message || 'Element clicked' };
+      }
+    }
+
+    // Fallback: use robotjs for coordinate click
+    try {
+      const robot = require('robotjs');
+      if (robot && x !== undefined && y !== undefined) {
+        robot.moveMouse(Math.round(x), Math.round(y));
+        robot.mouseClick();
+        return { ok: true, message: 'Clicked via robotjs' };
+      }
+    } catch (e) {
+      // robotjs not available
+    }
+
+    return { ok: false, message: 'Cannot click element (no valid target)' };
+  } catch (err) {
+    return { ok: false, message: err.message };
+  }
+});
+
+ipcMain.handle('paste-clipboard', async () => {
+  try {
+    const robot = require('robotjs');
+    if (robot) {
+      robot.keyTap('v', ['control']);
+      return { ok: true, message: 'Pasted via Ctrl+V' };
+    }
+  } catch (e) {
+    // robotjs not available
+  }
+
+  return { ok: false, message: 'robotjs not available for paste' };
+});
+
+ipcMain.handle('test-browser-url', async (event, { url, matchMode, port }) => {
+  try {
+    await BrowserManager.connect(port || 9222);
+    const tab = await BrowserManager.focusTabByUrl(url, matchMode || 'contains');
+    return { ok: true, message: `Tab ditemukan: "${tab.title}" — ${tab.url}` };
+  } catch (e) {
+    return { ok: false, message: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('test-focus-window', async (event, { windowTitle, exeName, restoreIfMinimized }) => {
+  try {
+    await WinAuto.focusWindowByTitle(windowTitle || exeName, restoreIfMinimized !== false);
+    return { ok: true, message: `Window "${windowTitle || exeName}" berhasil difokuskan` };
+  } catch (e) {
+    return { ok: false, message: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('scan-open-windows', async () => {
+  try {
+    const windows = await WinAuto.listOpenWindows();
+    return { ok: true, windows };
+  } catch (e) {
+    return { ok: false, message: e.message || String(e), windows: [] };
+  }
+});
+
+ipcMain.handle('capture-click-coordinate', async () => {
+  try {
+    const coords = await WinAuto.captureClickCoordinates(4000);
+    if (!coords) return { ok: false, message: 'Timeout menunggu klik koordinat' };
+    return { ok: true, ...coords };
+  } catch (e) {
+    return { ok: false, message: e.message || String(e) };
+  }
+});
+
+ipcMain.handle('open-chrome-debug', async (event, { port }) => {
+  const paths = [
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe',
+  ];
+  for (const p of paths) {
+    if (fs.existsSync(p)) {
+      exec(`"${p}" --remote-debugging-port=${port || 9222}`);
+      return { ok: true, message: `Browser dibuka dengan port ${port || 9222}` };
+    }
+  }
+  return { ok: false, message: 'Chrome/Edge tidak ditemukan di lokasi default' };
+});
 
 // NEW: Remove any existing listeners to prevent accumulation
 ipcMain.removeAllListeners('run-flow');
@@ -247,7 +434,12 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width:1600, height:1020, minWidth:1200, minHeight:700,
         title:"RBA Designer Pro — Studio 2.0",
-        webPreferences:{ nodeIntegration:true, contextIsolation:false, backgroundThrottling:false }, // CHANGED
+        webPreferences: {
+            preload: path.join(__dirname, 'preload.js'),
+            contextIsolation: false,
+            nodeIntegration: true,
+            webSecurity: false,
+        },
         backgroundColor:'#080d17'
     });
     
@@ -260,216 +452,9 @@ function createWindow() {
 ipcMain.on("open-external",   (e,url)=>shell.openExternal(url));
 ipcMain.on("get-devices",     (e)=>e.reply("device-list", pool.refresh()));
 
-class BrowserSessionManager {
-    constructor() {
-        this.sessions = new Map();
-    }
-
-    async getOrCreate(profileKey, opts = {}) {
-        const key = String(profileKey || 'default');
-        const existing = this.sessions.get(key);
-        if (existing) {
-            const alive = await this._isAlive(existing);
-            if (alive) {
-                console.log(`[BrowserSession] Reuse session: ${key}`);
-                return { session: existing, status: 'reused' };
-            }
-            console.log(`[BrowserSession] Session mati, buat ulang: ${key}`);
-            await this.close(key);
-        }
-
-        console.log(`[BrowserSession] Buat session baru: ${key}`);
-        const win = new BrowserWindow({
-            width: opts.width || 1280,
-            height: opts.height || 900,
-            show: opts.show !== false,
-            webPreferences: {
-                nodeIntegration: false,
-                contextIsolation: true,
-                sandbox: true
-            }
-        });
-
-        const session = {
-            profileKey: key,
-            window: win,
-            ready: false,
-            loading: false,
-            lastUrl: '',
-            createdAt: Date.now()
-        };
-
-        win.on('closed', () => {
-            console.log(`[BrowserSession] Browser window ditutup manual: ${key}`);
-            this.sessions.delete(key);
-        });
-
-        win.webContents.on('did-finish-load', () => {
-            session.ready = true;
-            session.loading = false;
-        });
-        win.webContents.on('did-fail-load', () => {
-            session.ready = false;
-            session.loading = false;
-        });
-
-        this.sessions.set(key, session);
-        return { session, status: 'created' };
-    }
-
-    get(profileKey) {
-        return this.sessions.get(String(profileKey || 'default')) || null;
-    }
-
-    getAll() {
-        return Array.from(this.sessions.values());
-    }
-
-    async navigate(profileKey, url, timeoutMs = 15000) {
-        const session = this.get(profileKey);
-        if (!session) return { success:false, error:'Browser session tidak ditemukan' };
-        session.ready = false;
-        session.loading = true;
-        session.lastUrl = url;
-
-        const win = session.window;
-        return new Promise((resolve) => {
-            let timer = null;
-            const cleanup = () => {
-                win.webContents.removeListener('did-finish-load', onFinish);
-                win.webContents.removeListener('did-fail-load', onFail);
-                if (timer) clearTimeout(timer);
-            };
-
-            const onFinish = () => {
-                cleanup();
-                session.ready = true;
-                session.loading = false;
-                resolve({ success:true });
-            };
-            const onFail = (_, errorCode, errorDescription) => {
-                cleanup();
-                session.ready = false;
-                session.loading = false;
-                resolve({ success:false, error: errorDescription || 'Load gagal: '+errorCode });
-            };
-
-            win.webContents.once('did-finish-load', onFinish);
-            win.webContents.once('did-fail-load', onFail);
-            timer = setTimeout(() => {
-                cleanup();
-                session.loading = false;
-                resolve({ success:false, error:'Load timeout setelah '+timeoutMs+'ms' });
-            }, timeoutMs);
-
-            win.loadURL(url).catch(err => {
-                cleanup();
-                session.loading = false;
-                resolve({ success:false, error: err.message || String(err) });
-            });
-        });
-    }
-
-    async click(profileKey, { selector, clickType='single', timeoutMs=10000 } = {}) {
-        const session = this.get(profileKey);
-        if (!session) return { success:false, error:'Browser session tidak ditemukan' };
-        if (!session.ready) return { success:false, error:'Browser session belum siap' };
-        if (!selector || !String(selector).trim()) {
-            return { success:false, error:'Selector kosong' };
-        }
-
-        const script = `
-            (async () => {
-                const selector = ${JSON.stringify(selector)};
-                const clickType = ${JSON.stringify(clickType)};
-                const timeout = ${timeoutMs};
-                const isXPath = selector.trim().startsWith('/') || selector.trim().startsWith('//');
-
-                function findElement() {
-                    try {
-                        if (isXPath) {
-                            const result = document.evaluate(selector, document, null, XPathResult.ORDERED_NODE_SNAPSHOT_TYPE, null);
-                            return result.snapshotLength > 0 ? result.snapshotItem(0) : null;
-                        }
-                        return document.querySelector(selector);
-                    } catch (err) {
-                        throw new Error('Invalid selector/XPath: ' + err.message);
-                    }
-                }
-
-                const start = Date.now();
-                let element = findElement();
-                while (!element) {
-                    if (Date.now() - start >= timeout) {
-                        throw new Error('Element not found: ' + selector);
-                    }
-                    await new Promise(resolve => setTimeout(resolve, 250));
-                    element = findElement();
-                }
-
-                element.scrollIntoView({ behavior:'instant', block:'center', inline:'center' });
-                await new Promise(resolve => setTimeout(resolve, 150));
-
-                if (clickType === 'double') {
-                    element.dispatchEvent(new MouseEvent('dblclick', { view: window, bubbles: true, cancelable: true }));
-                } else if (clickType === 'right') {
-                    element.dispatchEvent(new MouseEvent('contextmenu', { view: window, bubbles: true, cancelable: true, button: 2 }));
-                } else {
-                    element.click();
-                }
-
-                const rect = element.getBoundingClientRect();
-                return {
-                    success:true,
-                    x: Math.round(rect.left + rect.width / 2),
-                    y: Math.round(rect.top + rect.height / 2)
-                };
-            })();
-        `;
-
-        try {
-            const result = await session.window.webContents.executeJavaScript(script, true);
-            return result && result.success ? result : { success:false, error: result?.error || 'Click JS execution failed' };
-        } catch (err) {
-            return { success:false, error: err.message || String(err) };
-        }
-    }
-
-    async close(profileKey) {
-        const session = this.get(profileKey);
-        if (!session) return { success:true };
-        try {
-            if (!session.window.isDestroyed()) {
-                session.window.close();
-            }
-        } catch (err) {
-            console.warn('[BROWSER] closeSession error:', err);
-        }
-        this.sessions.delete(profileKey);
-        return { success:true };
-    }
-
-    async closeAll() {
-        for (const key of Array.from(this.sessions.keys())) {
-            await this.close(key);
-        }
-    }
-
-    async _isAlive(session) {
-        if (!session || !session.window || session.window.isDestroyed()) return false;
-        try {
-            return await session.window.webContents.executeJavaScript('true', true) === true;
-        } catch {
-            return false;
-        }
-    }
-}
-
-const browserManager = new BrowserSessionManager();
-
 ipcMain.handle('browser:get-or-create-session', async (e, { profileKey, opts }) => {
     try {
-        const { session, status } = await browserManager.getOrCreate(profileKey, opts);
+        const { session, status } = await BrowserManager.getOrCreate(profileKey, opts);
         return { success:true, profileKey: session.profileKey, status };
     } catch (err) {
         return { success:false, error: err.message || String(err) };
@@ -477,22 +462,22 @@ ipcMain.handle('browser:get-or-create-session', async (e, { profileKey, opts }) 
 });
 
 ipcMain.handle('browser:get-session', async (e, { profileKey }) => {
-    const session = browserManager.get(profileKey);
+    const session = BrowserManager.get(profileKey);
     if (!session) return { success:false, alive:false, error:'Browser session tidak ditemukan' };
-    const alive = await browserManager._isAlive(session);
+    const alive = await BrowserManager._isAlive(session);
     return { success:true, alive, profileKey: session.profileKey, lastUrl: session.lastUrl };
 });
 
 ipcMain.handle('browser:navigate', async (e, { profileKey, url, timeoutMs }) => {
-    return await browserManager.navigate(profileKey, url, timeoutMs);
+    return await BrowserManager.navigate(profileKey, url, timeoutMs);
 });
 
 ipcMain.handle('browser:click', async (e, { profileKey, selector, clickType, timeoutMs }) => {
-    return await browserManager.click(profileKey, { selector, clickType, timeoutMs });
+    return await BrowserManager.click(profileKey, { selector, clickType, timeoutMs });
 });
 
 ipcMain.handle('browser:close-session', async (e, { profileKey }) => {
-    return await browserManager.close(profileKey);
+    return await BrowserManager.close(profileKey);
 });
 
 ipcMain.handle("get-saved-workflows", ()=>loadSavedWorkflows());
@@ -501,10 +486,59 @@ ipcMain.handle("save-workflow", (e,wf)=>{
     if(idx>=0) s[idx]=wf; else s.unshift(wf);
     return saveWorkflowsFile(s);
 });
-ipcMain.handle("load-workflow",   (e,id)=>loadSavedWorkflows().find(i=>i.id===id)||null);
-ipcMain.handle("delete-workflow", (e,id)=>saveWorkflowsFile(loadSavedWorkflows().filter(i=>i.id!==id)));
+ipcMain.handle("load-workflow",   (e,id)=>loadSavedWorkflows().find(i=>String(i.id)===String(id))||null);
+ipcMain.handle("delete-workflow", (e,id)=>saveWorkflowsFile(loadSavedWorkflows().filter(i=>String(i.id)!==String(id))));
 ipcMain.handle("get-settings",    ()=>loadSettings());
 ipcMain.handle("save-settings",   (e,s)=>saveSettingsFile(s));
+
+// New: save-flow handler that writes individual flow files to userData/flows
+ipcMain.handle('save-flow', async (event, flowData) => {
+  try {
+    const flowsDir = path.join(app.getPath('userData'), 'flows');
+    if (!fs.existsSync(flowsDir)) {
+      fs.mkdirSync(flowsDir, { recursive: true });
+    }
+    const fileName = flowData.id + '.json';
+    const filePath = path.join(flowsDir, fileName);
+    fs.writeFileSync(filePath, JSON.stringify(flowData, null, 2), 'utf-8');
+    console.log('Flow saved:', filePath);
+    return { ok: true, filePath };
+  } catch (e) {
+    console.error('save-flow error:', e);
+    return { ok: false, message: e.message };
+  }
+});
+
+ipcMain.handle('get-saved-flows', async () => {
+  try {
+    const flowsDir = path.join(app.getPath('userData'), 'flows');
+    if (!fs.existsSync(flowsDir)) return [];
+    return fs.readdirSync(flowsDir)
+      .filter(f => f.endsWith('.json'))
+      .map(f => {
+        try { return JSON.parse(fs.readFileSync(path.join(flowsDir, f), 'utf-8')); }
+        catch { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.savedAt || b.updatedAt || Date.now()) - new Date(a.savedAt || a.updatedAt || Date.now()));
+  } catch (e) {
+    console.error('get-saved-flows error:', e);
+    return [];
+  }
+});
+
+ipcMain.handle('load-flow', async (event, id) => {
+  try {
+    const flowsDir = path.join(app.getPath('userData'), 'flows');
+    const filePath = path.join(flowsDir, `${id}.json`);
+    if (!fs.existsSync(filePath)) return null;
+    return JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch (e) {
+    console.error('load-flow error:', e);
+    return null;
+  }
+});
+
 
 // ADB command execution
 ipcMain.handle("run-adb", (e, { device, args })=>{
@@ -561,12 +595,6 @@ ipcMain.handle('adb:screenshot', async (e, { device } = {}) => {
             }
         });
     });
-});
-
-// Open file dialog
-ipcMain.handle("open-file-dialog", async (e, opts)=>{
-    const res = await dialog.showOpenDialog(opts||{});
-    return res;
 });
 
 // ADB WiFi connect
@@ -629,6 +657,41 @@ let currentUser = null;
 // Set userData path for auth module
 const auth = require('./auth');
 auth.setUserDataPath(app.getPath('userData'));
+
+ipcMain.handle('login', async (event, { username, password }) => {
+    try {
+        const result = await auth.login(username, password);
+        if (result.success) {
+            isAuthenticated = true;
+            currentUser = result.user;
+            setTimeout(() => {
+                if (mainWindow) mainWindow.loadFile(path.join(__dirname, 'index.html'));
+            }, 300);
+            return { success: true, ok: true, user: result.user };
+        }
+
+        return { success: false, ok: false, message: result.reason || 'Username atau password salah' };
+    } catch (e) {
+        return { success: false, ok: false, message: 'Error auth: ' + (e.message || String(e)) };
+    }
+});
+
+ipcMain.handle('get-default-users', async () => {
+    return [
+        { username: 'admin', password: 'admin123' },
+        { username: 'build', password: 'aryaseptian' }
+    ];
+});
+
+ipcMain.handle('get-activities', async () => {
+    try {
+        const activityList = require('./src/activities/activityList');
+        return activityList || [];
+    } catch (e) {
+        console.warn('[Main] get-activities failed:', e.message || e);
+        return [];
+    }
+});
 
 ipcMain.handle("auth-login", async (event, { username, password }) => {
     const result = await auth.login(username, password);
