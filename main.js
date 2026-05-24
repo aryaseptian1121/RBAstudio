@@ -2,7 +2,7 @@
 // RBA STUDIO PRO — main.js (Electron Main Process)
 // Author: Arya Septian  |  Version: 2.0
 // ============================================================
-const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, systemPreferences } = require("electron");
 const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
@@ -237,6 +237,359 @@ setAdbExecutor(pool.adb.bind(pool)); // CHANGED
 setExcelLoopBrowserManager(pool.browserManager?.bind(pool));
 
 let currentExcelLoopEngine = null;
+let excelLoopState = { running: false, paused: false, stopped: false };
+
+// ── MACRO RECORDER ENGINE ──────────────────────────────────
+let macroEngine = {
+  isRecording: false,
+  isPlaying: false,
+  isPaused: false,
+  events: [],
+  startTime: null,
+  playbackSpeed: 1.0,
+  loopCount: 1,
+};
+
+let ioHook = null;
+
+function getIOHook() {
+  if (ioHook) return ioHook;
+  try {
+    const hookModule = require('uiohook-napi');
+    ioHook = hookModule.uIOhook || hookModule;
+    return ioHook;
+  } catch (e1) {
+    try {
+      ioHook = require('iohook');
+      return ioHook;
+    } catch (e2) {
+      console.warn('[MacroRecorder] Hook tidak tersedia:', e2.message);
+      return null;
+    }
+  }
+}
+
+function getKeyName(keycode, rawcode) {
+  const keyMap = {
+    8: 'backspace', 9: 'tab', 13: 'enter', 27: 'escape',
+    32: 'space', 37: 'left', 38: 'up', 39: 'right', 40: 'down',
+    46: 'delete', 112: 'f1', 113: 'f2', 114: 'f3', 115: 'f4',
+    116: 'f5', 117: 'f6', 118: 'f7', 119: 'f8', 120: 'f9', 121: 'f10',
+    122: 'f11', 123: 'f12', 65: 'a', 66: 'b', 67: 'c', 68: 'd',
+    69: 'e', 70: 'f', 71: 'g', 72: 'h', 73: 'i', 74: 'j', 75: 'k',
+    76: 'l', 77: 'm', 78: 'n', 79: 'o', 80: 'p', 81: 'q', 82: 'r',
+    83: 's', 84: 't', 85: 'u', 86: 'v', 87: 'w', 88: 'x', 89: 'y', 90: 'z',
+  };
+
+  if (keyMap[keycode]) return keyMap[keycode];
+  if (rawcode >= 32 && rawcode < 127) return String.fromCharCode(rawcode);
+  return null;
+}
+
+function normalizeKey(key) {
+  if (!key) return key;
+  const keyLower = String(key).toLowerCase();
+  const map = {
+    backspace: 'backspace', tab: 'tab', enter: 'enter', escape: 'escape',
+    space: 'space', delete: 'delete', left: 'left', right: 'right',
+    up: 'up', down: 'down'
+  };
+  return map[keyLower] || keyLower;
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+ipcMain.handle('macro-start-recording', async (event, options = {}) => {
+  const hook = getIOHook();
+  if (!hook) {
+    return { ok: false, message: 'uiohook-napi tidak tersedia. Jalankan npm install uiohook-napi && npx electron-rebuild' };
+  }
+
+  if (hook.stop) {
+    try { hook.stop(); } catch (e) {}
+  }
+  if (hook.removeAllListeners) {
+    try { hook.removeAllListeners(); } catch (e) {}
+  }
+
+  macroEngine.isRecording = true;
+  macroEngine.isPlaying = false;
+  macroEngine.isPaused = false;
+  macroEngine.events = [];
+  macroEngine.startTime = Date.now();
+  const captureMove = Boolean(options.captureMouseMove);
+
+  hook.on('mouseclick', (e) => {
+    if (!macroEngine.isRecording) return;
+    macroEngine.events.push({
+      type: 'mouse_click',
+      timestamp: Date.now() - macroEngine.startTime,
+      x: e.x,
+      y: e.y,
+      button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle',
+      double: false,
+    });
+    try { event.sender.send('macro-event-recorded', macroEngine.events[macroEngine.events.length - 1]); } catch (err) {}
+  });
+
+  hook.on('mousedblclick', (e) => {
+    if (!macroEngine.isRecording) return;
+    macroEngine.events.push({
+      type: 'mouse_click',
+      timestamp: Date.now() - macroEngine.startTime,
+      x: e.x,
+      y: e.y,
+      button: 'left',
+      double: true,
+    });
+    try { event.sender.send('macro-event-recorded', macroEngine.events[macroEngine.events.length - 1]); } catch (err) {}
+  });
+
+  if (captureMove) {
+    hook.on('mousemove', (e) => {
+      if (!macroEngine.isRecording) return;
+      const lastMove = [...macroEngine.events].reverse().find((ev) => ev.type === 'mouse_move');
+      if (lastMove && Math.abs(e.x - lastMove.x) < 5 && Math.abs(e.y - lastMove.y) < 5) return;
+      const evt = { type: 'mouse_move', timestamp: Date.now() - macroEngine.startTime, x: e.x, y: e.y };
+      macroEngine.events.push(evt);
+      try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+    });
+  }
+
+  hook.on('mousewheel', (e) => {
+    if (!macroEngine.isRecording) return;
+    const evt = {
+      type: 'scroll',
+      timestamp: Date.now() - macroEngine.startTime,
+      x: e.x,
+      y: e.y,
+      delta: e.rotation || e.delta || 3,
+      direction: e.direction === 3 ? 'down' : 'up',
+    };
+    macroEngine.events.push(evt);
+    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+  });
+
+  hook.on('keydown', (e) => {
+    if (!macroEngine.isRecording) return;
+    const keyName = getKeyName(e.keycode, e.rawcode);
+    if (!keyName) return;
+    const evt = {
+      type: 'key_press',
+      timestamp: Date.now() - macroEngine.startTime,
+      key: keyName,
+      keycode: e.keycode,
+      ctrl: Boolean(e.ctrlKey),
+      shift: Boolean(e.shiftKey),
+      alt: Boolean(e.altKey),
+      meta: Boolean(e.metaKey),
+    };
+    macroEngine.events.push(evt);
+    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+  });
+
+  try {
+    hook.start();
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+
+  console.log('[MacroRecorder] Recording started');
+  return { ok: true, message: 'Recording dimulai. Lakukan aksi di PC kamu.' };
+});
+
+ipcMain.handle('macro-stop-recording', async () => {
+  const hook = getIOHook();
+  macroEngine.isRecording = false;
+  if (hook && hook.stop) {
+    try { hook.stop(); } catch (e) {}
+  }
+  if (hook && hook.removeAllListeners) {
+    try { hook.removeAllListeners(); } catch (e) {}
+  }
+  const duration = Date.now() - (macroEngine.startTime || Date.now());
+  console.log('[MacroRecorder] Recording stopped. Events:', macroEngine.events.length);
+  return { ok: true, events: macroEngine.events, duration, count: macroEngine.events.length };
+});
+
+ipcMain.handle('macro-get-events', () => ({ ok: true, events: macroEngine.events }));
+
+ipcMain.handle('macro-play', async (event, { events = [], speed = 1.0, loops = 1 }) => {
+  let robot;
+  try {
+    robot = require('robotjs');
+  } catch (e) {
+    return { ok: false, message: 'robotjs tidak tersedia' };
+  }
+
+  macroEngine.isPlaying = true;
+  macroEngine.isPaused = false;
+  macroEngine.playbackSpeed = speed;
+  macroEngine.loopCount = loops;
+
+  const send = (level, message) => {
+    try { event.sender.send('macro-play-log', { level, message }); } catch (err) {}
+  };
+
+  const isMac = process.platform === 'darwin';
+
+  for (let loop = 0; loop < loops; loop++) {
+    if (!macroEngine.isPlaying) break;
+    send('INFO', `Loop ${loop + 1}/${loops} dimulai`);
+
+    let lastTimestamp = 0;
+    for (const evt of events) {
+      if (!macroEngine.isPlaying) break;
+      while (macroEngine.isPaused) {
+        await sleep(100);
+      }
+
+      const delay = Math.max(0, (evt.timestamp - lastTimestamp) / speed);
+      if (delay > 0) await sleep(Math.min(delay, 5000));
+      lastTimestamp = evt.timestamp;
+
+      try {
+        if (evt.type === 'mouse_click') {
+          robot.moveMouse(evt.x, evt.y);
+          await sleep(50);
+          robot.mouseClick(evt.button || 'left', evt.double);
+          send('INFO', `Klik ${evt.button || 'left'} (${evt.x},${evt.y})`);
+        } else if (evt.type === 'mouse_move') {
+          robot.moveMouse(evt.x, evt.y);
+        } else if (evt.type === 'scroll') {
+          robot.scrollMouse(0, (evt.direction === 'down' ? 1 : -1) * (evt.delta || 3));
+          send('INFO', `Scroll ${evt.direction} (${evt.x},${evt.y})`);
+        } else if (evt.type === 'key_press') {
+          const mods = [];
+          if (evt.ctrl) mods.push(isMac ? 'command' : 'control');
+          if (evt.shift) mods.push('shift');
+          if (evt.alt) mods.push('alt');
+          if (evt.meta) mods.push('command');
+
+          if (evt.key && evt.key.length === 1) {
+            if (mods.length > 0) {
+              robot.keyTap(evt.key.toLowerCase(), mods);
+            } else {
+              robot.typeString(evt.key);
+            }
+          } else {
+            robot.keyTap(normalizeKey(evt.key), mods);
+          }
+
+          send('INFO', `Tekan: ${[...mods, evt.key].filter(Boolean).join('+')}`);
+        }
+      } catch (err) {
+        send('ERROR', `Step gagal: ${err.message}`);
+      }
+    }
+
+    if (loop < loops - 1) {
+      send('INFO', 'Menunggu sebelum loop berikutnya...');
+      await sleep(500);
+    }
+  }
+
+  macroEngine.isPlaying = false;
+  send('SUCCESS', 'Playback selesai!');
+  return { ok: true };
+});
+
+ipcMain.handle('macro-stop-play', () => {
+  macroEngine.isPlaying = false;
+  return { ok: true };
+});
+
+ipcMain.handle('macro-pause-play', () => {
+  macroEngine.isPaused = true;
+  return { ok: true };
+});
+
+ipcMain.handle('macro-resume-play', () => {
+  macroEngine.isPaused = false;
+  return { ok: true };
+});
+
+ipcMain.handle('macro-save', async (event, { name, events = [] }) => {
+  try {
+    const macroDir = path.join(app.getPath('userData'), 'macros');
+    if (!fs.existsSync(macroDir)) fs.mkdirSync(macroDir, { recursive: true });
+    const id = 'macro_' + Date.now();
+    const data = {
+      id,
+      name,
+      events,
+      savedAt: new Date().toISOString(),
+      eventCount: events.length,
+    };
+    fs.writeFileSync(path.join(macroDir, id + '.json'), JSON.stringify(data, null, 2));
+    return { ok: true, id };
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('macro-list', async () => {
+  try {
+    const macroDir = path.join(app.getPath('userData'), 'macros');
+    if (!fs.existsSync(macroDir)) return { ok: true, macros: [] };
+    const files = fs.readdirSync(macroDir).filter((file) => file.endsWith('.json'));
+    const macros = files
+      .map((file) => {
+        try { return JSON.parse(fs.readFileSync(path.join(macroDir, file), 'utf8')); } catch (err) { return null; }
+      })
+      .filter(Boolean)
+      .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt));
+    return { ok: true, macros };
+  } catch (err) {
+    return { ok: true, macros: [] };
+  }
+});
+
+ipcMain.handle('macro-load', async (event, id) => {
+  try {
+    const macroDir = path.join(app.getPath('userData'), 'macros');
+    const filePath = path.join(macroDir, id + '.json');
+    const data = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+    return { ok: true, ...data };
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('macro-delete', async (event, id) => {
+  try {
+    const macroDir = path.join(app.getPath('userData'), 'macros');
+    fs.unlinkSync(path.join(macroDir, id + '.json'));
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('macro-check-permission', () => {
+  if (process.platform !== 'darwin') {
+    return { ok: true, granted: true };
+  }
+
+  try {
+    return { ok: true, granted: systemPreferences.isTrustedAccessibilityClient(false) };
+  } catch (err) {
+    return { ok: true, granted: false, message: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('macro-request-permission', () => {
+  if (process.platform !== 'darwin') {
+    return { ok: true, granted: true };
+  }
+
+  try {
+    systemPreferences.isTrustedAccessibilityClient(true);
+    return { ok: true, granted: systemPreferences.isTrustedAccessibilityClient(false) };
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+});
 
 ipcMain.handle('open-file-dialog', async (e, options) => {
   const parent = BrowserWindow.fromWebContents(e.sender) || mainWindow;
@@ -252,31 +605,593 @@ ipcMain.handle('dialog:openFile', async (e, options = {}) => {
   });
 });
 
-ipcMain.handle('excel-loop-run', async (e, config) => {
-  if (currentExcelLoopEngine) {
-    return { success:false, error: 'Excel loop already running' };
+ipcMain.handle('browse-file', async (event, filters) => {
+  const { dialog } = require('electron');
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: filters || [
+      { name: 'Excel', extensions: ['xlsx', 'xls', 'csv'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  });
+  return {
+    ok: !result.canceled,
+    filePath: result.filePaths[0] || null
+  };
+});
+
+ipcMain.handle('check-macos-permissions', () => {
+  if (process.platform !== 'darwin') {
+    return { ok: true, accessibility: true, message: 'Accessibility tidak diperlukan di platform ini' };
   }
-  currentExcelLoopEngine = new ExcelLoopEngine(config,
-    state => e.sender.send('excel-loop-state', state),
-    (level, message) => e.sender.send('excel-loop-log', { level: level.toUpperCase(), message })
-  );
+
   try {
-    await currentExcelLoopEngine.run();
-    return { success:true };
-  } catch (err) {
-    return { success:false, error: err.message || String(err) };
-  } finally {
-    currentExcelLoopEngine = null;
+    const trusted = systemPreferences.isTrustedAccessibilityClient(false);
+    return {
+      ok: true,
+      accessibility: trusted,
+      message: trusted
+        ? 'Accessibility OK'
+        : 'Accessibility belum diizinkan — paste ke Word masih bisa via native AppleScript'
+    };
+  } catch (e) {
+    return { ok: true, accessibility: false, message: e.message || 'Gagal memeriksa permission' };
   }
 });
 
+ipcMain.handle('open-accessibility-settings', () => {
+  if (process.platform !== 'darwin') return { ok: true };
+
+  exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+  return { ok: true };
+});
+
+ipcMain.handle('preview-excel', async (event, { filePath, sheetName, maxRows }) => {
+  try {
+    const XLSX = require('xlsx');
+    const wb = XLSX.readFile(filePath);
+    const sheet = wb.Sheets[sheetName || wb.SheetNames[0]];
+    if (!sheet) return { ok: false, message: 'Sheet tidak ditemukan' };
+    const all = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    return { ok: true, rows: all.slice(0, (maxRows || 10) + 1) };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+});
+
+ipcMain.handle('excel-loop-control', (event, { action }) => {
+  if (action === 'stop') {
+    excelLoopState.stopped = true;
+    excelLoopState.running = false;
+  }
+  if (action === 'pause') {
+    excelLoopState.paused = true;
+  }
+  if (action === 'resume') {
+    excelLoopState.paused = false;
+  }
+  return { ok: true };
+});
+
+ipcMain.handle('run-excel-loop', async (event, { config }) => {
+  const send = (level, msg) => {
+    try { event.sender.send('excel-loop-log', { level, message: msg }); } catch (e) {}
+  };
+  const updateStats = (data) => {
+    try { event.sender.send('excel-loop-stats', data); } catch (e) {}
+  };
+
+  excelLoopState = { running: true, paused: false, stopped: false };
+
+  try {
+    const XLSX = require('xlsx');
+    send('INFO', 'Membaca file Excel: ' + config.excelPath);
+
+    let workbook;
+    try {
+      workbook = XLSX.readFile(config.excelPath);
+    } catch (e) {
+      send('ERROR', 'Gagal baca Excel: ' + e.message);
+      return { ok: false, message: e.message };
+    }
+
+    const sheetName = config.sheetName || workbook.SheetNames[0];
+    const sheet = workbook.Sheets[sheetName];
+    if (!sheet) {
+      send('ERROR', 'Sheet "' + sheetName + '" tidak ditemukan. Sheet tersedia: ' + workbook.SheetNames.join(', '));
+      return { ok: false };
+    }
+
+    const allRows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' });
+    const startRow = parseInt(config.startRow) || 2;
+    const endRow = Math.min(parseInt(config.endRow) || 100, allRows.length);
+    const colIdx = (config.targetColumn || 'A').toUpperCase().charCodeAt(0) - 65;
+    const totalLoops = endRow - startRow + 1;
+
+    send('INFO', 'Excel berhasil dibaca. Total baris data: ' + allRows.length);
+    send('INFO', 'Akan proses baris ' + startRow + ' sampai ' + endRow + ' (' + totalLoops + ' baris)');
+
+    let robot = null;
+    try {
+      robot = require('robotjs');
+    } catch (e) {
+      send('WARN', 'robotjs tidak tersedia — aksi keyboard/mouse desktop tidak bisa dijalankan');
+      send('WARN', 'Untuk aktifkan: npm install robotjs && npx electron-rebuild');
+    }
+
+    let processed = 0;
+    let skipped = 0;
+
+    for (let rowIdx = startRow; rowIdx <= endRow; rowIdx++) {
+      if (excelLoopState.stopped) {
+        send('INFO', 'Loop dihentikan oleh user.');
+        break;
+      }
+      while (excelLoopState.paused) {
+        await sleep(300);
+        if (excelLoopState.stopped) break;
+      }
+
+      const loopNum = rowIdx - startRow + 1;
+      const excelRow = allRows[rowIdx - 1] || [];
+      const cellValue = String(excelRow[colIdx] ?? '');
+
+      if (!cellValue.trim() && config.skipEmptyRows) {
+        send('INFO', 'Baris ' + rowIdx + ': kosong, dilewati');
+        skipped++;
+        updateStats({ currentLoop: loopNum, totalLoops, currentRow: rowIdx, processed, skipped, currentCellValue: '' });
+        continue;
+      }
+
+      const rowData = {};
+      excelRow.forEach((val, i) => {
+        rowData[String.fromCharCode(65 + i)] = String(val ?? '');
+      });
+
+      send('INFO', '── Loop ' + loopNum + '/' + totalLoops + ' | Baris ' + rowIdx + ' ──');
+      send('INFO', 'Nilai: "' + cellValue + '"');
+
+      clipboard.writeText(cellValue);
+      send('INFO', 'Copy ke clipboard: "' + cellValue + '"');
+
+      updateStats({ currentLoop: loopNum, totalLoops, currentRow: rowIdx, processed, skipped, currentCellValue: cellValue });
+
+      const target = config.targetConfig || {};
+      if (target.type === 'desktop_exe' && target.windowTitle) {
+        try {
+          await focusDesktopWindow(target.windowTitle, send);
+          await sleep(target.focusDelay || 300);
+        } catch (e) {
+          send('ERROR', 'Gagal fokus window "' + target.windowTitle + '": ' + e.message);
+          if (config.stopOnError) break;
+          skipped++;
+          continue;
+        }
+      }
+
+      let rowOk = true;
+      const steps = config.normalFlowSteps || [];
+
+      for (const step of steps) {
+        if (step.aktif === false) continue;
+        if (excelLoopState.stopped) break;
+
+        send('INFO', 'Step: "' + (step.label || step.type) + '"');
+
+        try {
+          await executeStep(step, { cellValue, rowData, rowIdx }, robot, send, config);
+          await sleep(step.delayAfter || config.delaySettings?.betweenSteps || 200);
+        } catch (e) {
+          send('ERROR', 'Step "' + step.label + '" gagal: ' + e.message);
+          rowOk = false;
+          if (config.stopOnError) {
+            excelLoopState.stopped = true;
+            break;
+          }
+        }
+      }
+
+      if (rowOk) {
+        processed++;
+        send('INFO', 'Baris ' + rowIdx + ' selesai ✓');
+      } else {
+        skipped++;
+      }
+
+      updateStats({ currentLoop: loopNum, totalLoops, currentRow: rowIdx, processed, skipped, currentCellValue: cellValue });
+
+      if (rowIdx < endRow) {
+        await sleep(config.delayBetweenRows || 500);
+      }
+    }
+
+    send('SUCCESS', 'Eksekusi selesai! ' + processed + ' berhasil, ' + skipped + ' dilewati/error');
+    excelLoopState.running = false;
+    return { ok: true, processed, skipped };
+  } catch (e) {
+    send('ERROR', 'Error tidak terduga: ' + e.message);
+    excelLoopState.running = false;
+    return { ok: false, message: e.message };
+  }
+});
+
+async function focusDesktopWindow(windowTitle, send) {
+  const escaped = windowTitle.replace(/'/g, "''");
+  const script = `
+Add-Type @"
+using System; using System.Runtime.InteropServices; using System.Text;
+public class WF {
+  [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
+  [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n);
+  [DllImport("user32.dll")] static extern bool IsIconic(IntPtr h);
+  [DllImport("user32.dll")] static extern bool EnumWindows(EnumWindowsProc p, IntPtr l);
+  [DllImport("user32.dll")] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
+  [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
+  delegate bool EnumWindowsProc(IntPtr h, IntPtr l);
+  public static string Focus(string q) {
+    IntPtr f = IntPtr.Zero;
+    EnumWindows((h,l) => {
+      if(!IsWindowVisible(h)) return true;
+      var sb = new StringBuilder(256); GetWindowText(h,sb,256);
+      if(sb.ToString().ToLower().Contains(q.ToLower())){f=h;return false;}
+      return true;
+    }, IntPtr.Zero);
+    if(f==IntPtr.Zero) return "NOT_FOUND";
+    if(IsIconic(f)) ShowWindow(f,9);
+    ShowWindow(f,5); SetForegroundWindow(f);
+    return "OK";
+  }
+}
+"@
+[WF]::Focus('${escaped}')
+  `.trim();
+
+  return new Promise((resolve, reject) => {
+    exec('powershell -NoProfile -Command "' + script.replace(/\n/g,' ').replace(/"/g,'\\"') + '"',
+      { timeout: 5000 },
+      (err, stdout) => {
+        const result = stdout.trim();
+        if (result === 'NOT_FOUND') {
+          reject(new Error('Window "' + windowTitle + '" tidak ditemukan. Pastikan app sudah terbuka.'));
+        } else {
+          if (send) send('INFO', 'Window difokuskan: "' + windowTitle + '"');
+          resolve(true);
+        }
+      }
+    );
+  });
+}
+
+function buildPasteScript(appName) {
+
+  if (appName === 'Microsoft Word') {
+    // Word AppleScript: type text langsung ke selection
+    // Tidak butuh Accessibility, tidak butuh System Events
+    return `
+tell application "Microsoft Word"
+  activate
+  delay 0.4
+  set clipContent to (do shell script "pbpaste")
+  type text clipContent into (get selection of active document)
+end tell`;
+  }
+
+  if (appName === 'Microsoft Excel') {
+    return `
+tell application "Microsoft Excel"
+  activate
+  delay 0.4
+  set clipContent to (do shell script "pbpaste")
+  set value of selection to clipContent
+end tell`;
+  }
+
+  if (appName === 'Microsoft PowerPoint') {
+    return `
+tell application "Microsoft PowerPoint"
+  activate
+  delay 0.4
+end tell
+tell application "System Events"
+  tell process "Microsoft PowerPoint"
+    keystroke "v" using {command down}
+  end tell
+end tell`;
+  }
+
+  if (appName === 'Google Chrome' || appName === 'Arc' || appName === 'Safari') {
+    // Browser: inject via JavaScript ke focused element
+    return `
+tell application "${appName}"
+  activate
+  delay 0.4
+  set clipContent to (do shell script "pbpaste")
+  execute front window's active tab javascript "
+    (function() {
+      var el = document.activeElement;
+      if (!el || (el.tagName !== 'INPUT' && el.tagName !== 'TEXTAREA' && !el.isContentEditable)) {
+        el = document.querySelector('input:not([type=hidden]), textarea');
+      }
+      if (el) {
+        var start = el.selectionStart || 0;
+        var end = el.selectionEnd || 0;
+        var val = el.value || el.innerText || '';
+        var newVal = val.substring(0, start) + '" & clipContent & "' + val.substring(end);
+        try {
+          var setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value') ||
+                       Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value');
+          if (setter && setter.set) setter.set.call(el, newVal);
+          else el.value = newVal;
+          el.dispatchEvent(new Event('input', {bubbles:true}));
+          el.dispatchEvent(new Event('change', {bubbles:true}));
+        } catch(e) {
+          el.value = newVal;
+        }
+      }
+    })()
+  "
+end tell`;
+  }
+
+  // App lain: coba keystroke via System Events (butuh Accessibility)
+  return `
+tell application "${appName}"
+  activate
+end tell
+delay 0.5
+tell application "System Events"
+  tell process "${appName}"
+    keystroke "v" using {command down}
+  end tell
+end tell`;
+}
+
+function buildMenuPasteScript(appName) {
+  return `
+tell application "${appName}"
+  activate
+end tell
+delay 0.5
+tell application "System Events"
+  tell process "${appName}"
+    click menu item "Paste" of menu "Edit" of menu bar item "Edit" of menu bar 1
+  end tell
+end tell`;
+}
+
+function buildTypeScript(appName, text) {
+  const escaped = text.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+  if (appName === 'Microsoft Word') {
+    return `
+tell application "Microsoft Word"
+  activate
+end tell
+delay 0.4
+tell application "Microsoft Word"
+  type text "${escaped}"
+end tell`;
+  }
+  if (appName === 'Microsoft Excel') {
+    return `
+tell application "Microsoft Excel"
+  activate
+end tell
+delay 0.4
+tell application "Microsoft Excel"
+  type text "${escaped}"
+end tell`;
+  }
+  if (appName === 'Microsoft PowerPoint') {
+    return `
+tell application "Microsoft PowerPoint"
+  activate
+end tell
+delay 0.4
+tell application "Microsoft PowerPoint"
+  type text "${escaped}"
+end tell`;
+  }
+
+  return `
+tell application "${appName}"
+  activate
+end tell
+delay 0.4
+tell application "${appName}"
+  type text "${escaped}"
+end tell`;
+}
+
+async function executeStep(step, context, robot, send, config) {
+  const resolveVars = (text) => {
+    if (!text) return '';
+    let r = String(text);
+    Object.entries(context.rowData || {}).forEach(([col, val]) => {
+      r = r.replace(new RegExp('{{col_' + col + '}}', 'g'), val);
+    });
+    r = r.replace(/{{excel_value}}/g, context.cellValue || '');
+    r = r.replace(/{{row_number}}/g, String(context.rowIdx || ''));
+    return r;
+  };
+
+  const runAppleScript = (script) => new Promise((res, rej) => {
+    exec("osascript -e '" + script.replace(/'/g, "'\"'\"'") + "'", { timeout: 8000 }, (err, stdout, stderr) => {
+      if (err) rej(new Error(stderr || err.message));
+      else res(stdout.trim());
+    });
+  });
+
+  const runPowerShell = (script) => new Promise((res, rej) => {
+    exec('powershell -NoProfile -Command "' + script.replace(/"/g, '\\"') + '"', { timeout: 8000 }, (err, stdout) => {
+      if (err) rej(err);
+      else res(stdout.trim());
+    });
+  });
+
+  const isMac = process.platform === 'darwin';
+  const isWin = process.platform === 'win32';
+  const targetTitle = resolveVars(step.windowTitle || config.targetConfig?.windowTitle || '');
+
+  switch (step.type) {
+    case 'fokus_window': {
+      const title = resolveVars(step.windowTitle || '');
+      if (!title) throw new Error('Nama window kosong di step Fokus Window');
+
+      if (isMac) {
+        const appName = getMacAppName(title);
+        try {
+          await runAppleScript(`tell application "${appName}" to activate\ndelay 0.4`);
+          send('INFO', 'Window difokuskan: "' + appName + '"');
+        } catch (e) {
+          await runAppleScript(`tell application "System Events"\n  set frontmost of (first process whose name contains "${title}") to true\nend tell\ndelay 0.4`);
+          send('INFO', 'Window difokuskan via System Events: "' + title + '"');
+        }
+      } else if (isWin) {
+        await focusWindowsApp(title, send, runPowerShell);
+      }
+      await sleep(step.delayAfter || 400);
+      break;
+    }
+
+    case 'klik_koordinat': {
+      if (!robot) throw new Error('robotjs tidak tersedia');
+      const x = parseInt(step.x) || 0;
+      const y = parseInt(step.y) || 0;
+      robot.moveMouse(x, y);
+      await sleep(80);
+      if (step.clickType === 'double') robot.mouseClick('left', true);
+      else robot.mouseClick(step.clickType || 'left');
+      send('INFO', 'Klik ' + (step.clickType || 'kiri') + ' di (' + x + ',' + y + ')');
+      break;
+    }
+
+    case 'paste_atau_ketik': {
+      await sleep(config.delaySettings?.beforePaste || 200);
+
+      if (isMac) {
+        const appName = getMacAppName(targetTitle);
+
+        if (step.method === 'type') {
+          const text = resolveVars(step.text || '');
+          if (!text) {
+            send('WARN', 'Teks kosong, dilewati');
+            break;
+          }
+
+          try {
+            await runAppleScript(buildTypeScript(appName, text));
+            send('INFO', 'Ketik teks ke "' + appName + '"');
+          } catch (e) {
+            send('ERROR', 'Ketik gagal: ' + e.message);
+            throw e;
+          }
+        } else {
+          try {
+            await runAppleScript(buildPasteScript(appName));
+            send('INFO', 'Paste ke "' + appName + '" berhasil');
+          } catch (e) {
+            if (e.message && e.message.includes('1002')) {
+              send('ERROR', 'PERMISSION DENIED: ' + e.message);
+              send('WARN', '>>> Solusi: Buka System Preferences → Privacy & Security → Accessibility');
+              send('WARN', '>>> Tambahkan "RBA Studio Pro" ke daftar. Atau coba metode lain di bawah.');
+              try {
+                await runAppleScript(buildMenuPasteScript(appName));
+                send('INFO', 'Paste via menu Edit berhasil (fallback)');
+              } catch (e2) {
+                send('ERROR', 'Semua metode paste gagal. Grant Accessibility permission.');
+                throw e2;
+              }
+            } else {
+              send('ERROR', 'Paste gagal: ' + e.message);
+              throw e;
+            }
+          }
+        }
+      } else if (isWin) {
+        const targetTitle = resolveVars(step.windowTitle || config.targetConfig?.windowTitle || '');
+        if (targetTitle) await focusWindowsApp(targetTitle, send, runPowerShell);
+        await sleep(200);
+        if (robot) {
+          robot.keyTap('v', ['control']);
+        } else {
+          await runPowerShell('Add-Type -AssemblyName System.Windows.Forms; [System.Windows.Forms.SendKeys]::SendWait("^v")');
+        }
+        send('INFO', 'Paste (Ctrl+V) ke "' + targetTitle + '"');
+      }
+
+      await sleep(step.delayAfter || 300);
+      break;
+    }
+
+    case 'tekan_tombol': {
+      const key = step.key || 'enter';
+      const repeat = parseInt(step.repeat) || 1;
+      const keyCodeMap = { enter: 36, tab: 48, escape: 53, space: 49, backspace: 51, delete: 117, up: 126, down: 125, left: 123, right: 124 };
+
+      for (let i = 0; i < repeat; i++) {
+        if (isMac) {
+          const appName = getMacAppName(targetTitle);
+          const script = targetTitle
+            ? `tell application "${appName}" to activate\ndelay 0.2\ntell application "System Events"\n  tell process "${appName}"\n    key code ${keyCodeMap[key] || 36}\n  end tell\nend tell`
+            : `tell application "System Events" to key code ${keyCodeMap[key] || 36}`;
+
+          try {
+            await runAppleScript(script);
+          } catch (e) {
+            if (robot) robot.keyTap(key, step.modifiers || []);
+          }
+        } else if (robot) {
+          robot.keyTap(key, step.modifiers || []);
+        }
+        await sleep(80);
+      }
+      send('INFO', 'Tekan: ' + key + (repeat > 1 ? ' x' + repeat : ''));
+      break;
+    }
+
+    case 'delay': {
+      const ms = parseInt(step.duration) || 1000;
+      send('INFO', 'Delay ' + ms + 'ms');
+      await sleep(ms);
+      break;
+    }
+
+    default:
+      send('WARN', 'Step "' + step.type + '" belum diimplementasi');
+  }
+}
+
+function getMacAppName(title) {
+  if (!title) return title;
+  const lower = title.toLowerCase();
+  if (lower.includes('microsoft word') || lower.includes('word')) return 'Microsoft Word';
+  if (lower.includes('microsoft excel') || lower.includes('excel')) return 'Microsoft Excel';
+  if (lower.includes('google chrome') || lower.includes('chrome')) return 'Google Chrome';
+  if (lower.includes('safari')) return 'Safari';
+  if (lower.includes('arc')) return 'Arc';
+  if (lower.includes('firefox')) return 'Firefox';
+  if (lower.includes('edge')) return 'Microsoft Edge';
+  if (lower.includes('terminal')) return 'Terminal';
+  if (lower.includes('finder')) return 'Finder';
+  return title;
+}
+
+async function focusWindowsApp(title, send, runPowerShell) {
+  const escaped = title.replace(/'/g, "''");
+  await runPowerShell(`$h = (Get-Process | Where-Object { $_.MainWindowTitle -like '*${escaped}*' } | Select-Object -First 1).MainWindowHandle; if ($h) { Add-Type -TypeDefinition 'using System; using System.Runtime.InteropServices; public class WF { [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h); [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr h, int n); }'; [WF]::ShowWindow([IntPtr]$h, 9); [WF]::SetForegroundWindow([IntPtr]$h) }`);
+  if (send) send('INFO', 'Window difokuskan (Win): "' + title + '"');
+  await sleep(300);
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
 ipcMain.handle('excel-loop-pause', async () => {
-  currentExcelLoopEngine?.pause();
+  excelLoopState.paused = true;
   return { success: true };
 });
 
 ipcMain.handle('excel-loop-resume', async () => {
-  currentExcelLoopEngine?.resume();
+  excelLoopState.paused = false;
   return { success: true };
 });
 
@@ -293,6 +1208,8 @@ ipcMain.handle('capture-click-coordinates', async () => {
 ipcMain.handle('excel-loop-stop', async () => {
   currentExcelLoopEngine?.stop();
   currentExcelLoopEngine = null;
+  excelLoopState.stopped = true;
+  excelLoopState.running = false;
   return { success: true };
 });
 

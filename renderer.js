@@ -56,6 +56,8 @@ const createDefaultConfig = _defaults.createDefaultConfig || (() => ({}));
 const _panel = safeRequire('./src/components/ExcelLoopPanel') || {};
 const openExcelLoopPanel = _panel.openExcelLoopPanel || (() => {});
 const closeExcelLoopPanel = _panel.closeExcelLoopPanel || (() => {});
+const _macroRecorderModule = safeRequire('./src/macroRecorder/macroRecorder.js') || {};
+const initMacroRecorder = _macroRecorderModule.initMacroRecorder || (() => {});
 
 // Expose React to window for Excel Loop panel
 if (typeof React !== 'undefined') {
@@ -4443,6 +4445,11 @@ window.addEventListener('keydown', e => {
   window.deleteProject = safeCall('deleteProject', deleteProject);
   window.showAdbInfo = safeCall('showAdbInfo', showAdbInfo);
   window.showTemplateModal = safeCall('showTemplateModal', showTemplateModal);
+
+  const macroMount = document.getElementById('macro-recorder-mount');
+  if (macroMount) {
+    initMacroRecorder(macroMount);
+  }
 
   // Auto-save timer (BUG #14)
   if (prefs.autoSave) {

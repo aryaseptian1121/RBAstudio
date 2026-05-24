@@ -1073,18 +1073,10 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 
     <!-- RECORDER VIEW -->
     <div class="view" id="recorder">
-      <div class="dash-view">
+      <div class="dash-view" style="display:flex;flex-direction:column;min-height:0;">
         <div class="dash-title">🎬 Macro Recorder</div>
-        <div class="dash-sub">Klik pada canvas untuk merekam tap. Setiap klik akan menjadi node Tap dalam workflow.</div>
-        <div style="display:flex;gap:12px;margin-bottom:20px;">
-          <button class="hdr-btn primary" id="rec-start-btn" onclick="startMacroRecord()">● Start Recording</button>
-          <button class="hdr-btn" id="rec-stop-btn" onclick="stopMacroRecord()" disabled>■ Stop</button>
-          <button class="hdr-btn" onclick="clearRecordedSteps()">🗑 Clear</button>
-          <button class="hdr-btn" onclick="saveRecordedToWorkflow()" id="rec-save-btn" disabled>💾 Save to Workflow</button>
-        </div>
-        <div id="rec-steps" style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;min-height:120px;font-size:12px;color:var(--dim2);">
-          Klik 'Start Recording' lalu klik pada area yang ingin direkam...
-        </div>
+        <div class="dash-sub">Rekam tindakan sistem-wide di seluruh layar PC: klik mouse, keyboard, dan playback otomatis.</div>
+        <div id="macro-recorder-mount" style="flex:1;min-height:0;"></div>
       </div>
     </div>
 
