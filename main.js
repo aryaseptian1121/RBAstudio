@@ -300,17 +300,25 @@ function normalizeKey(key) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 ipcMain.handle('macro-start-recording', async (event, options = {}) => {
+  if (process.platform === 'darwin') {
+    const granted = systemPreferences.isTrustedAccessibilityClient(false);
+    if (!granted) {
+      systemPreferences.isTrustedAccessibilityClient(true);
+      return {
+        ok: false,
+        needPermission: true,
+        message: 'Accessibility permission diperlukan.\n\nLangkah:\n1. Buka System Preferences yang muncul\n2. Klik Privacy & Security → Accessibility\n3. Aktifkan toggle untuk RBA Studio Pro\n4. Restart RBA Studio Pro\n5. Klik Mulai Rekam lagi'
+      };
+    }
+  }
+
   const hook = getIOHook();
   if (!hook) {
     return { ok: false, message: 'uiohook-napi tidak tersedia. Jalankan npm install uiohook-napi && npx electron-rebuild' };
   }
 
-  if (hook.stop) {
-    try { hook.stop(); } catch (e) {}
-  }
-  if (hook.removeAllListeners) {
-    try { hook.removeAllListeners(); } catch (e) {}
-  }
+  try { hook.stop(); } catch (e) {}
+  try { hook.removeAllListeners(); } catch (e) {}
 
   macroEngine.isRecording = true;
   macroEngine.isPlaying = false;
@@ -321,40 +329,32 @@ ipcMain.handle('macro-start-recording', async (event, options = {}) => {
 
   hook.on('mouseclick', (e) => {
     if (!macroEngine.isRecording) return;
-    macroEngine.events.push({
+    const evt = {
       type: 'mouse_click',
       timestamp: Date.now() - macroEngine.startTime,
       x: e.x,
       y: e.y,
       button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle',
       double: false,
-    });
-    try { event.sender.send('macro-event-recorded', macroEngine.events[macroEngine.events.length - 1]); } catch (err) {}
+    };
+    macroEngine.events.push(evt);
+    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+    console.log('[MCR] Click:', evt.x, evt.y, evt.button);
   });
 
   hook.on('mousedblclick', (e) => {
     if (!macroEngine.isRecording) return;
-    macroEngine.events.push({
+    const evt = {
       type: 'mouse_click',
       timestamp: Date.now() - macroEngine.startTime,
       x: e.x,
       y: e.y,
       button: 'left',
       double: true,
-    });
-    try { event.sender.send('macro-event-recorded', macroEngine.events[macroEngine.events.length - 1]); } catch (err) {}
+    };
+    macroEngine.events.push(evt);
+    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
   });
-
-  if (captureMove) {
-    hook.on('mousemove', (e) => {
-      if (!macroEngine.isRecording) return;
-      const lastMove = [...macroEngine.events].reverse().find((ev) => ev.type === 'mouse_move');
-      if (lastMove && Math.abs(e.x - lastMove.x) < 5 && Math.abs(e.y - lastMove.y) < 5) return;
-      const evt = { type: 'mouse_move', timestamp: Date.now() - macroEngine.startTime, x: e.x, y: e.y };
-      macroEngine.events.push(evt);
-      try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
-    });
-  }
 
   hook.on('mousewheel', (e) => {
     if (!macroEngine.isRecording) return;
@@ -370,10 +370,27 @@ ipcMain.handle('macro-start-recording', async (event, options = {}) => {
     try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
   });
 
+  if (captureMove) {
+    let lastMoveTime = 0;
+    hook.on('mousemove', (e) => {
+      if (!macroEngine.isRecording) return;
+      const now = Date.now();
+      if (now - lastMoveTime < 50) return;
+      lastMoveTime = now;
+      const evt = { type: 'mouse_move', timestamp: now - macroEngine.startTime, x: e.x, y: e.y };
+      macroEngine.events.push(evt);
+      try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+    });
+  }
+
   hook.on('keydown', (e) => {
     if (!macroEngine.isRecording) return;
     const keyName = getKeyName(e.keycode, e.rawcode);
     if (!keyName) return;
+
+    const modifierKeys = [29, 42, 54, 56, 57, 58, 3675, 3676, 3640];
+    if (modifierKeys.includes(e.keycode)) return;
+
     const evt = {
       type: 'key_press',
       timestamp: Date.now() - macroEngine.startTime,
@@ -386,16 +403,16 @@ ipcMain.handle('macro-start-recording', async (event, options = {}) => {
     };
     macroEngine.events.push(evt);
     try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+    console.log('[MCR] Key:', keyName, 'ctrl:', e.ctrlKey, 'meta:', e.metaKey);
   });
 
   try {
     hook.start();
+    console.log('[MCR] Recording started with global hooks');
+    return { ok: true, message: 'Recording dimulai! Beralih ke Excel/Word dan lakukan aksi.' };
   } catch (err) {
     return { ok: false, message: err.message || String(err) };
   }
-
-  console.log('[MacroRecorder] Recording started');
-  return { ok: true, message: 'Recording dimulai. Lakukan aksi di PC kamu.' };
 });
 
 ipcMain.handle('macro-stop-recording', async () => {
@@ -1351,6 +1368,7 @@ function createWindow() {
     mainWindow = new BrowserWindow({
         width:1600, height:1020, minWidth:1200, minHeight:700,
         title:"RBA Designer Pro — Studio 2.0",
+        icon: path.join(__dirname, 'RBA_logo.png'),
         webPreferences: {
             preload: path.join(__dirname, 'preload.js'),
             contextIsolation: false,

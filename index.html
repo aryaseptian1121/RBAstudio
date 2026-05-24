@@ -41,7 +41,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .sidebar-sep{width:36px;height:1px;background:var(--border);margin:6px 0;}
 
 /* ── HEADER ──────────────────────────────────────── */
-.hdr-logo{font-weight:800;font-size:14px;letter-spacing:.04em;background:linear-gradient(135deg,#60a5fa,#818cf8);-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.hdr-logo{font-weight:800;font-size:14px;letter-spacing:.04em;background:linear-gradient(135deg,#60a5fa,#818cf8);background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
 .hdr-project{font-size:13px;font-weight:600;color:var(--dim2);cursor:pointer;padding:4px 10px;border-radius:8px;border:1px solid var(--border2);}
 .hdr-project:hover{border-color:var(--accent);color:var(--text);}
 .hdr-spacer{flex:1;}
@@ -268,40 +268,63 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 ::-webkit-scrollbar-track{background:transparent;}
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
 </style>
+<link rel="stylesheet" href="assets/rba-ui.css">
 </head>
 <body>
 <div class="shell">
 
   <!-- SIDEBAR -->
   <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo-row">
+        <div class="brand-mark"><img src="RBA_logo.png" alt="RBA Studio logo"></div>
+        <div class="brand-copy">
+          <strong>RBA Studio</strong>
+          <span>Automation Suite</span>
+        </div>
+      </div>
+    </div>
     <div class="nav-ico active" id="nav-dash" onclick="switchView('dashboard')" title="">
-      ⊞<span class="tooltip">Dashboard</span>
+      ⊞<span class="nav-ico-label">Dashboard</span>
     </div>
     <div class="nav-ico" id="nav-edit" onclick="switchView('editor')" title="">
-      ⚡<span class="tooltip">Studio Editor</span>
+      ⚡<span class="nav-ico-label">Workflows</span>
     </div>
     <div class="nav-ico" id="nav-rec" onclick="switchView('recorder')" title="">
-      🎬<span class="tooltip">Macro Recorder</span>
+      🎬<span class="nav-ico-label">Macro Recorder</span>
     </div>
     <div class="nav-ico" id="nav-excel-loop" onclick="switchView('excel-loop')" title="">
-      📊<span class="tooltip">Excel Loop</span>
+      📊<span class="nav-ico-label">Excel Loop</span>
     </div>
     <div class="nav-ico" id="nav-set" onclick="switchView('settings')" title="">
-      ⚙️<span class="tooltip">Settings</span>
+      ⚙️<span class="nav-ico-label">Settings</span>
     </div>
     <div class="sidebar-sep"></div>
     <div class="nav-ico" onclick="toggleTheme()" title="">
-      🌓<span class="tooltip">Toggle Theme</span>
+      🌓<span class="nav-ico-label">Theme</span>
     </div>
-    <div class="nav-ico" onclick="showAdbInfo()" title="" style="margin-top:auto;">
-      📱<span class="tooltip">ADB Info</span>
+    <div class="nav-ico" onclick="showAdbInfo()" title="">
+      📱<span class="nav-ico-label">Devices</span>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-avatar">RS</div>
+      <div>
+        <strong>Administrator</strong>
+        <span>Automation Ops</span>
+      </div>
     </div>
   </nav>
 
   <div class="main">
     <!-- HEADER -->
     <header>
-      <div class="hdr-logo">RBA Studio Pro</div>
+      <div class="hdr-logo">
+        <img src="RBA_logo.png" alt="RBA Studio icon">
+        <div class="hdr-brand-copy">
+          <strong>RBA Studio Pro</strong>
+          <span>Workflow Orchestration</span>
+        </div>
+      </div>
       <div class="hdr-project" id="proj-name" ondblclick="renameProject()">Untitled Flow ✏️</div>
       <div class="hdr-spacer"></div>
       <div class="rec-badge" id="rec-badge"><div class="rec-dot"></div>REC</div>
@@ -314,58 +337,116 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     <!-- DASHBOARD VIEW -->
     <div class="view active" id="dashboard">
       <div class="dash-view">
-        <div class="dash-title">🏠 Dashboard</div>
-        <div class="dash-sub">Kelola & jalankan workflow automasi Anda</div>
-        <div class="dash-grid">
-          <div class="dash-card" onclick="createNew(); switchView('editor')">
-            <div class="dash-card-ico">➕</div>
-            <div class="dash-card-ttl">New Workflow</div>
-            <div class="dash-card-sub">Buat flow baru dari awal</div>
+        <div class="dashboard-shell">
+          <div class="dashboard-hero">
+            <div class="hero-card">
+              <div class="hero-badge">✨ Modern Dashboard</div>
+              <div class="hero-title">Selamat Datang, <span id="welcome-user">Administrator</span> 👋</div>
+              <div class="hero-subtitle">Kelola & jalankan workflow otomatis Anda dengan mudah dan cepat. Monitor performa, akses perangkat, dan rekam aksi dengan antarmuka yang lebih rapi.</div>
+              <div class="hero-meta">
+                <div class="meta-pill">🧠 Workflow Ready</div>
+                <div class="meta-pill">⚡ Fast Execution</div>
+                <div class="meta-pill">📱 ADB Live</div>
+              </div>
+            </div>
+            <div class="success-card">
+              <div>
+                <div class="label">Success Rate</div>
+                <div class="success-rate" id="stat-success-rate">0%</div>
+                <div class="success-sub">Total <span id="stat-total-runs">0</span> runs</div>
+              </div>
+              <div class="sparkline">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <button class="hdr-btn" onclick="loadSavedProjects()">🔄 Refresh</button>
+            </div>
           </div>
-          <div class="dash-card" onclick="document.getElementById('fileInput').click()">
-            <div class="dash-card-ico">📂</div>
-            <div class="dash-card-ttl">Import JSON</div>
-            <div class="dash-card-sub">Muat workflow dari file</div>
+
+          <div class="quick-actions">
+            <div class="dash-card quick-card" onclick="createNew(); switchView('editor')">
+              <div class="quick-card-header">
+                <div class="quick-icon new-workflow">＋</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">New Workflow</div>
+              <div class="quick-card-sub">Buat flow baru dari awal.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="document.getElementById('fileInput').click()">
+              <div class="quick-card-header">
+                <div class="quick-icon import-json">⬆</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Import JSON</div>
+              <div class="quick-card-sub">Muat workflow dari file lokal.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="refreshDevices()">
+              <div class="quick-card-header">
+                <div class="quick-icon scan-devices">📱</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Scan Devices</div>
+              <div class="quick-card-sub">Deteksi perangkat ADB yang aktif.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="switchView('recorder')">
+              <div class="quick-card-header">
+                <div class="quick-icon macro-recorder">◉</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Macro Recorder</div>
+              <div class="quick-card-sub">Rekam klik menjadi workflow otomatis.</div>
+            </div>
           </div>
-          <div class="dash-card" onclick="refreshDevices()">
-            <div class="dash-card-ico">📱</div>
-            <div class="dash-card-ttl">Scan Devices</div>
-            <div class="dash-card-sub">Deteksi perangkat ADB</div>
+
+          <div class="stats-grid">
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-total-wf">0</div>
+                  <div class="stat-label">Workflows</div>
+                </div>
+                <div class="stat-icon workflows">📁</div>
+              </div>
+              <div class="stat-progress"><span style="width: 84%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-total-runs">0</div>
+                  <div class="stat-label">Runs</div>
+                </div>
+                <div class="stat-icon runs">▶</div>
+              </div>
+              <div class="stat-progress"><span style="width: 68%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-success-rate">0%</div>
+                  <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat-icon success">✓</div>
+              </div>
+              <div class="stat-progress"><span style="width: 92%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-devices">0</div>
+                  <div class="stat-label">ADB Devices</div>
+                </div>
+                <div class="stat-icon devices">📲</div>
+              </div>
+              <div class="stat-progress"><span style="width: 76%;"></span></div>
+            </div>
           </div>
-          <div class="dash-card" onclick="switchView('recorder')">
-            <div class="dash-card-ico">🎬</div>
-            <div class="dash-card-ttl">Macro Recorder</div>
-            <div class="dash-card-sub">Rekam klik menjadi workflow</div>
+
+          <div class="wf-list-wrap">
+            <div class="wf-list-hdr">
+              <span>📋 Saved Workflows</span>
+              <button class="hdr-btn" onclick="loadSavedProjects()">🔄 Refresh</button>
+            </div>
+            <div id="wf-list" style="padding:8px;color:var(--dim);font-size:12px;text-align:center;">Memuat...</div>
           </div>
-        </div>
-        <div class="dash-summary">
-          <div class="dash-card">
-            <div class="dash-card-ico">📁</div>
-            <div class="dash-card-ttl">Workflows</div>
-            <div class="dash-card-sub"><span id="stat-total-wf">0</span> tersimpan</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-ico">▶️</div>
-            <div class="dash-card-ttl">Runs</div>
-            <div class="dash-card-sub"><span id="stat-total-runs">0</span> eksekusi</div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-ico">✅</div>
-            <div class="dash-card-ttl">Success Rate</div>
-            <div class="dash-card-sub"><span id="stat-success-rate">0%</span></div>
-          </div>
-          <div class="dash-card">
-            <div class="dash-card-ico">📱</div>
-            <div class="dash-card-ttl">ADB Devices</div>
-            <div class="dash-card-sub"><span id="stat-devices">0</span></div>
-          </div>
-        </div>
-        <div class="wf-list-wrap">
-          <div class="wf-list-hdr">
-            <span>📋 Saved Workflows</span>
-            <button class="hdr-btn" onclick="loadSavedProjects()">🔄 Refresh</button>
-          </div>
-          <div id="wf-list" style="padding:8px;color:var(--dim);font-size:12px;text-align:center;">Memuat...</div>
         </div>
       </div>
     </div>

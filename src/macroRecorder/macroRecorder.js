@@ -179,18 +179,81 @@ function initMacroRecorder(mountElement) {
     setBadge('✏️ Event diperbarui', '#38bdf8');
   }
 
+  function showPermissionInstructions(container) {
+    const existing = document.getElementById('mcr-perm-banner');
+    if (existing) existing.remove();
+
+    const banner = document.createElement('div');
+    banner.id = 'mcr-perm-banner';
+    banner.style.cssText = 'background:#1e1b4b;border:1px solid #6d28d9;border-radius:10px;padding:20px;margin-bottom:16px;';
+    banner.innerHTML = `
+      <h3 style="margin:0 0 12px;color:#c4b5fd;font-size:15px;">🔐 Diperlukan: Accessibility Permission</h3>
+      <p style="margin:0 0 12px;color:#ddd6fe;font-size:13px;line-height:1.7;">
+        Untuk merekam klik dan keyboard di <strong>semua aplikasi</strong> (Excel, Word, Chrome, dll), macOS memerlukan izin khusus.
+      </p>
+      <div style="background:#111827;border-radius:8px;padding:14px;margin-bottom:16px;">
+        <div style="color:#f9fafb;font-size:13px;line-height:2;">
+          <div>1️⃣ Klik <strong>Buka System Preferences</strong></div>
+          <div>2️⃣ Masuk ke <strong>Privacy & Security → Accessibility</strong></div>
+          <div>3️⃣ Aktifkan toggle untuk <strong>RBA Studio Pro</strong></div>
+          <div>4️⃣ <strong>Restart</strong> RBA Studio Pro</div>
+          <div>5️⃣ Klik <strong>Mulai Rekam</strong> lagi 🎬</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button id="mcr-open-prefs" style="flex:1;padding:10px;background:#6d28d9;color:white;border:none;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;">🔧 Buka System Preferences</button>
+        <button id="mcr-dismiss-banner" style="padding:10px 16px;background:#374151;color:#9ca3af;border:none;border-radius:8px;cursor:pointer;font-size:13px;">Tutup</button>
+      </div>`;
+
+    const target = container.querySelector('.mcr-controls') || container.firstChild;
+    if (target) target.insertBefore(banner, target.firstChild);
+
+    document.getElementById('mcr-open-prefs')?.addEventListener('click', async () => {
+      await api.invoke('open-accessibility-settings');
+    });
+    document.getElementById('mcr-dismiss-banner')?.addEventListener('click', () => banner.remove());
+  }
+
+  function showErrorBanner(message, container) {
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:#7f1d1d;border-radius:8px;padding:12px 16px;margin-bottom:12px;color:#fca5a5;font-size:13px;';
+    banner.innerHTML = '⚠️ ' + String(message).replace(/\n/g, '<br>');
+    const target = container.querySelector('.mcr-controls') || container.firstChild;
+    if (target) target.insertBefore(banner, target.firstChild);
+    setTimeout(() => banner.remove(), 8000);
+  }
+
   async function startRecording() {
+    const btn = document.getElementById('mcr-btn-record');
+    if (btn) {
+      btn.textContent = 'Memeriksa izin...';
+      btn.disabled = true;
+    }
+
     const permissionGranted = await checkPermission();
     if (!permissionGranted) {
-      alert('Accessibility permission diperlukan untuk record sistem-wide di macOS. Buka System Preferences → Privacy & Security → Accessibility, tambahkan RBA Studio Pro, lalu restart aplikasi.');
+      showPermissionInstructions(mountElement);
+      if (btn) {
+        btn.textContent = '🔴 Mulai Rekam';
+        btn.disabled = false;
+      }
       return;
     }
 
     const result = await api.invoke('macro-start-recording', { captureMouseMove: state.captureMouseMove });
     if (!result.ok) {
-      alert(`Error: ${result.message}`);
+      if (result.needPermission) {
+        showPermissionInstructions(mountElement);
+      } else {
+        showErrorBanner(result.message, mountElement);
+      }
+      if (btn) {
+        btn.textContent = '🔴 Mulai Rekam';
+        btn.disabled = false;
+      }
       return;
     }
+
     state.recording = true;
     state.events = [];
     const log = document.getElementById('mcr-log');
@@ -199,10 +262,10 @@ function initMacroRecorder(mountElement) {
     const counter = document.getElementById('mcr-event-count');
     if (counter) counter.textContent = '0 events';
     setBadge('🔴 Merekam...', '#f87171');
-    const recordBtn = document.getElementById('mcr-btn-record');
-    if (recordBtn) {
-      recordBtn.textContent = '🔴 Merekam...';
-      recordBtn.style.background = '#7f1d1d';
+    if (btn) {
+      btn.textContent = '🔴 Merekam...';
+      btn.style.background = '#7f1d1d';
+      btn.disabled = false;
     }
   }
 
@@ -277,7 +340,7 @@ function initMacroRecorder(mountElement) {
 
   <div style="flex:1;display:flex;overflow:hidden;">
     <div style="flex:1;display:flex;flex-direction:column;padding:20px;border-right:1px solid #374151;overflow-y:auto;">
-      <div style="background:#1f2937;border-radius:10px;padding:16px;margin-bottom:16px;">
+      <div class="mcr-controls" style="background:#1f2937;border-radius:10px;padding:16px;margin-bottom:16px;">
         <h3 style="margin:0 0 12px;font-size:14px;font-weight:600;color:#9ca3af;">KONTROL REKAMAN</h3>
         <div style="display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;">
           <button id="mcr-btn-record" style="flex:1;min-width:120px;padding:12px 20px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">🔴 Mulai Rekam</button>
@@ -353,7 +416,9 @@ function initMacroRecorder(mountElement) {
   </div>
 </div>`;
 
-  document.getElementById('mcr-btn-record').addEventListener('click', startRecording);
+  document.getElementById('mcr-btn-record').addEventListener('click', async () => {
+    await startRecording();
+  });
   document.getElementById('mcr-btn-stop-rec').addEventListener('click', stopRecording);
   document.getElementById('mcr-btn-clear').addEventListener('click', () => {
     if (confirm('Hapus semua events yang direkam?')) {

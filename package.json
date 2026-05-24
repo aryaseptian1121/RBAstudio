@@ -33,6 +33,7 @@
     "buildDependenciesFromSource": false,
     "win": {
       "target": "nsis",
+      "icon": "RBA_logo.png",
       "requestedExecutionLevel": "asInvoker",
       "certificateFile": null,
       "certificatePassword": null,

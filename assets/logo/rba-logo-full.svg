@@ -1,0 +1,26 @@
+<svg width="280" height="72" viewBox="0 0 280 72" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="cgrad" x1="12" y1="10" x2="42" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D4AA"/>
+      <stop offset="1" stop-color="#00B8D4"/>
+    </linearGradient>
+    <linearGradient id="dgrad" x1="44" y1="10" x2="74" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A6CF7"/>
+      <stop offset="1" stop-color="#7B2FF7"/>
+    </linearGradient>
+    <linearGradient id="studio" x1="110" y1="20" x2="210" y2="56" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D4AA"/>
+      <stop offset="0.2" stop-color="#2196F3"/>
+      <stop offset="0.4" stop-color="#3D5AFE"/>
+      <stop offset="0.6" stop-color="#5C6BC0"/>
+      <stop offset="0.8" stop-color="#7B1FA2"/>
+      <stop offset="1" stop-color="#6A1B9A"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="4" width="64" height="64" rx="20" fill="#0D1117"/>
+  <circle cx="34" cy="36" r="5" fill="#FFFFFF"/>
+  <path d="M18 26C18 20.4772 22.4772 16 28 16H36C42.6274 16 48 21.3726 48 28V30C48 36.6274 42.6274 42 36 42H26" stroke="url(#cgrad)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M26 28C26 22.4772 30.4772 18 36 18H44C49.5228 18 54 22.4772 54 28V30C54 35.5228 49.5228 40 44 40H32" stroke="url(#dgrad)" stroke-width="5" stroke-linecap="round"/>
+  <text x="84" y="28" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="26" font-weight="800" fill="#0D1117">RBA</text>
+  <text x="84" y="58" font-family="Inter, Segoe UI, Arial, sans-serif" font-size="16" font-weight="700" letter-spacing="0.3em" fill="url(#studio)">STUDIO</text>
+</svg>
