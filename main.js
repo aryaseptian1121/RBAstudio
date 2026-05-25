@@ -14,6 +14,10 @@ const { ExcelLoopEngine } = require('./src/services/ExcelLoopEngine');
 const WinAuto = require('./src/services/WindowsAutomation');
 const BrowserManager = require('./src/services/BrowserManager');
 const { resolveTarget } = require('./src/engine/TargetResolver');
+const SmartDetector = require('./src/smartDetector');
+const ElectronScreenshotProvider = require('./src/screenshotProviders/electronProvider');
+const AdbScreenshotProvider = require('./src/screenshotProviders/adbProvider');
+const { buildSmartTargetForClick } = require('./src/smartTargetCapture');
 
 // NEW: Get correct base path for both dev and production
 function getBasePath() {
@@ -383,34 +387,52 @@ ipcMain.handle('macro-start-recording', async (event, options = {}) => {
   macroEngine.events = [];
   macroEngine.startTime = Date.now();
   const captureMove = Boolean(options.captureMouseMove);
+  const desktopProvider = new ElectronScreenshotProvider();
+  let recordQueue = Promise.resolve();
+
+  const queueRecordedClick = (e, double) => {
+    recordQueue = recordQueue
+      .then(async () => {
+        const evt = {
+          type: 'mouse_click',
+          timestamp: Date.now() - macroEngine.startTime,
+          x: e.x,
+          y: e.y,
+          button: double ? 'left' : (e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle'),
+          double,
+        };
+
+        try {
+          const smartTarget = await buildSmartTargetForClick({
+            x: evt.x,
+            y: evt.y,
+            provider: desktopProvider,
+          });
+
+          if (smartTarget) {
+            evt.smartTarget = smartTarget;
+          }
+        } catch (err) {
+          console.warn('[MCR] smartTarget capture gagal:', err?.message || err);
+        }
+
+        macroEngine.events.push(evt);
+        try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+        console.log('[MCR] Click:', evt.x, evt.y, evt.button, double ? '(double)' : '');
+      })
+      .catch((err) => {
+        console.warn('[MCR] queueRecordedClick gagal:', err?.message || err);
+      });
+  };
 
   hook.on('mouseclick', (e) => {
     if (!macroEngine.isRecording) return;
-    const evt = {
-      type: 'mouse_click',
-      timestamp: Date.now() - macroEngine.startTime,
-      x: e.x,
-      y: e.y,
-      button: e.button === 1 ? 'left' : e.button === 2 ? 'right' : 'middle',
-      double: false,
-    };
-    macroEngine.events.push(evt);
-    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
-    console.log('[MCR] Click:', evt.x, evt.y, evt.button);
+    queueRecordedClick(e, false);
   });
 
   hook.on('mousedblclick', (e) => {
     if (!macroEngine.isRecording) return;
-    const evt = {
-      type: 'mouse_click',
-      timestamp: Date.now() - macroEngine.startTime,
-      x: e.x,
-      y: e.y,
-      button: 'left',
-      double: true,
-    };
-    macroEngine.events.push(evt);
-    try { event.sender.send('macro-event-recorded', evt); } catch (err) {}
+    queueRecordedClick(e, true);
   });
 
   hook.on('mousewheel', (e) => {
@@ -506,6 +528,84 @@ ipcMain.handle('macro-play', async (event, { events = [], speed = 1.0, loops = 1
   };
 
   const isMac = process.platform === 'darwin';
+  const smartDetectionSettings = (() => {
+    const smart = (loadSettings().smartDetection || {});
+    return {
+      enabled: smart.enabled !== false,
+      minimumConfidence: Number.isFinite(Number(smart.minimumConfidence)) ? Number(smart.minimumConfidence) : 60,
+      verifyBeforeClick: smart.verifyBeforeClick !== false,
+      waitForElementTimeout: Number.isFinite(Number(smart.waitForElementTimeout)) ? Number(smart.waitForElementTimeout) : 5000,
+      retryOnLowConfidence: Number.isFinite(Number(smart.retryOnLowConfidence)) ? Number(smart.retryOnLowConfidence) : 2,
+      allowRawCoordsAsFallback: smart.allowRawCoordsAsFallback !== false,
+    };
+  })();
+
+  const isMobileStep = (evt = {}) => {
+    const mode = String(evt.context || evt.deviceType || '').toLowerCase();
+    return mode === 'mobile';
+  };
+
+  const resolveSmartClickTarget = async (evt) => {
+    const smartTarget = evt?.smartTarget;
+    if (!smartDetectionSettings.enabled || !smartTarget) {
+      return { x: evt.x, y: evt.y, source: 'raw' };
+    }
+
+    const provider = isMobileStep(evt)
+      ? new AdbScreenshotProvider({ deviceId: evt.deviceId || evt.device || null })
+      : new ElectronScreenshotProvider();
+
+    const detector = new SmartDetector(provider, {
+      minimumConfidence: smartDetectionSettings.minimumConfidence,
+      retryOnLowConfidence: smartDetectionSettings.retryOnLowConfidence,
+      waitForElementTimeout: smartDetectionSettings.waitForElementTimeout,
+    });
+
+    const fallbackTarget = { x: evt.x, y: evt.y, source: 'raw' };
+
+    try {
+      const waitResult = await detector.waitForElement(smartTarget, smartDetectionSettings.waitForElementTimeout);
+      if (!waitResult.found) {
+        throw new Error('Element belum terlihat pada waktu tunggu');
+      }
+
+      const screenshot = await provider.capture();
+      const deviceSize = await provider.getDeviceSize();
+      const result = await detector.findElement(smartTarget, screenshot, deviceSize);
+
+      if (!result.found) {
+        throw new Error('SmartDetector tidak menemukan elemen');
+      }
+
+      const isRegionOnly = result.layer === 4 && !smartTarget.regionHint && !smartTarget.regionPercent;
+      if (isRegionOnly) {
+        throw new Error('Smart detection hanya menyediakan fallback region');
+      }
+
+      if (result.confidence < smartDetectionSettings.minimumConfidence) {
+        throw new Error(`Confidence ${result.confidence} di bawah threshold ${smartDetectionSettings.minimumConfidence}`);
+      }
+
+      if (smartDetectionSettings.verifyBeforeClick) {
+        const verified = await detector.verifyElementStillVisible({ x: result.x, y: result.y }, smartTarget, screenshot);
+        if (!verified.valid) {
+          throw new Error('Verifikasi visual gagal');
+        }
+      }
+
+      send('INFO', `Smart klik ${result.layer} (${result.x},${result.y}) confidence=${result.confidence}`);
+      return { x: result.x, y: result.y, source: 'smart', confidence: result.confidence };
+    } catch (err) {
+      const message = err && err.message ? err.message : String(err);
+      send('WARN', `Smart detection fallback: ${message}`);
+
+      if (!smartDetectionSettings.allowRawCoordsAsFallback) {
+        throw err;
+      }
+
+      return fallbackTarget;
+    }
+  };
 
   for (let loop = 0; loop < loops; loop++) {
     if (!macroEngine.isPlaying) break;
@@ -524,10 +624,11 @@ ipcMain.handle('macro-play', async (event, { events = [], speed = 1.0, loops = 1
 
       try {
         if (evt.type === 'mouse_click') {
-          robot.moveMouse(evt.x, evt.y);
+          const target = await resolveSmartClickTarget(evt);
+          robot.moveMouse(target.x, target.y);
           await sleep(50);
           robot.mouseClick(evt.button || 'left', evt.double);
-          send('INFO', `Klik ${evt.button || 'left'} (${evt.x},${evt.y})`);
+          send('INFO', `Klik ${evt.button || 'left'} (${target.x},${target.y})${target.source === 'smart' ? ' [smart]' : ''}`);
         } else if (evt.type === 'mouse_move') {
           robot.moveMouse(evt.x, evt.y);
         } else if (evt.type === 'scroll') {

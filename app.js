@@ -1068,7 +1068,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <strong style="color:var(--text);">RBA Studio Pro</strong><br>
               Version: <strong style="color:var(--text);">2.0</strong><br>
               Developer: <strong style="color:var(--text);">Arya Septian</strong><br>
-              <a href="#" onclick="ipcRenderer.send('open-external','mailto:arya@example.com')" style="color:var(--accent);">arya@example.com</a><br><br>
+              <a href="#" onclick="ipcRenderer.send('open-external','mailto:aryaseptian1121@gmail.com')" style="color:var(--accent);">aryaseptian1121@gmail.com</a><br><br>
               <button class="hdr-btn" onclick="resetAllSettings()" style="width:100%;">🔄 Reset All Settings</button>
             </div>
           </div>
