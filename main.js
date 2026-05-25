@@ -7,6 +7,9 @@ const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
+const { Client, LocalAuth } = require('whatsapp-web.js');
+const qrcode = require('qrcode');
+const XLSX = require('xlsx');
 const { ExcelLoopEngine } = require('./src/services/ExcelLoopEngine');
 const WinAuto = require('./src/services/WindowsAutomation');
 const BrowserManager = require('./src/services/BrowserManager');
@@ -238,6 +241,16 @@ setExcelLoopBrowserManager(pool.browserManager?.bind(pool));
 
 let currentExcelLoopEngine = null;
 let excelLoopState = { running: false, paused: false, stopped: false };
+let waClient = null;
+let waEngine = {
+  running: false,
+  paused: false,
+  stopped: false,
+  processed: 0,
+  failed: 0,
+  total: 0,
+  checkpoint: []
+};
 
 // ── MACRO RECORDER ENGINE ──────────────────────────────────
 let macroEngine = {
@@ -298,6 +311,50 @@ function normalizeKey(key) {
 }
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function parseCsvFile(filePath) {
+  const content = fs.readFileSync(filePath, 'utf8');
+  const lines = content.split(/\r?\n/).filter((line) => line.trim() !== '');
+  if (!lines.length) {
+    return { headers: [], data: [], totalRows: 0, sheetName: path.basename(filePath) };
+  }
+
+  const parseLine = (line) => {
+    const result = [];
+    let current = '';
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+      const char = line[i];
+      if (char === '"') {
+        if (inQuotes && line[i + 1] === '"') {
+          current += '"';
+          i++;
+        } else {
+          inQuotes = !inQuotes;
+        }
+      } else if (char === ',' && !inQuotes) {
+        result.push(current);
+        current = '';
+      } else {
+        current += char;
+      }
+    }
+    result.push(current);
+    return result;
+  };
+
+  const headers = parseLine(lines[0]);
+  const data = lines.slice(1).map((line) => parseLine(line));
+  return { headers, data, totalRows: data.length, sheetName: path.basename(filePath) };
+}
+
+function resolveTemplateVars(template, rowData = {}) {
+  let result = String(template ?? '');
+  Object.entries(rowData).forEach(([key, value]) => {
+    result = result.replace(new RegExp(`{{${key}}}`, 'g'), String(value ?? ''));
+  });
+  return result;
+}
 
 ipcMain.handle('macro-start-recording', async (event, options = {}) => {
   if (process.platform === 'darwin') {
@@ -1471,6 +1528,226 @@ ipcMain.handle('load-flow', async (event, id) => {
   } catch (e) {
     console.error('load-flow error:', e);
     return null;
+  }
+});
+
+ipcMain.handle('wa-connect', async (event) => {
+  try {
+    if (waClient) {
+      try {
+        await waClient.destroy();
+      } catch (error) {
+        // ignore
+      }
+      waClient = null;
+    }
+
+    waClient = new Client({
+      authStrategy: new LocalAuth({
+        dataPath: path.join(app.getPath('userData'), 'wa-session')
+      }),
+      puppeteer: {
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
+      }
+    });
+
+    waClient.on('qr', async (qr) => {
+      try {
+        const img = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
+        event.sender.send('wa-qr', img);
+      } catch (error) {
+        console.error('[wa] Failed to render QR:', error);
+      }
+    });
+
+    waClient.on('ready', () => {
+      try {
+        event.sender.send('wa-connected', {
+          name: waClient.info.pushname,
+          number: waClient.info.wid.user
+        });
+      } catch (error) {
+        console.error('[wa] Failed to emit ready event:', error);
+      }
+    });
+
+    waClient.on('disconnected', (reason) => {
+      try {
+        event.sender.send('wa-disconnected', reason);
+      } catch (error) {
+        console.error('[wa] Failed to emit disconnect event:', error);
+      }
+    });
+
+    await waClient.initialize();
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('wa-disconnect', async () => {
+  try {
+    if (waClient) {
+      await waClient.destroy();
+      waClient = null;
+    }
+    waEngine = { running: false, paused: false, stopped: false, processed: 0, failed: 0, total: 0, checkpoint: [] };
+    return { ok: true };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('wa-get-groups', async () => {
+  if (!waClient) {
+    return { ok: false, message: 'WhatsApp belum terhubung' };
+  }
+
+  try {
+    const chats = await waClient.getChats();
+    const groups = chats
+      .filter((chat) => chat.isGroup)
+      .map((chat) => ({
+        id: chat.id?._serialized || chat.id,
+        name: chat.name || 'Grup Tanpa Nama',
+        memberCount: chat.groupMetadata?.participants?.length || 0
+      }));
+    return { ok: true, groups };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('wa-parse-excel', async (event, filePath) => {
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    if (ext === '.csv') {
+      const parsed = parseCsvFile(filePath);
+      return { ok: true, headers: parsed.headers, data: parsed.data, totalRows: parsed.totalRows, sheetName: parsed.sheetName };
+    }
+
+    const wb = XLSX.readFile(filePath);
+    const sheetName = wb.SheetNames[0];
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+    const headers = rows[0] || [];
+    const data = rows.slice(1);
+    return { ok: true, headers, data, totalRows: data.length, sheetName };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
+  }
+});
+
+ipcMain.handle('wa-run', async (event, { recipients = [], template = '', options = {} }) => {
+  if (!waClient) {
+    return { ok: false, message: 'WhatsApp belum terhubung. Scan QR dulu.' };
+  }
+
+  const send = (type, data = {}) => {
+    try {
+      event.sender.send('wa-progress', { type, ...data });
+    } catch (error) {
+      // ignore
+    }
+  };
+
+  const delayMin = parseInt(options.delayMin, 10) || 8000;
+  const delayMax = parseInt(options.delayMax, 10) || 15000;
+  const randomDelay = () => delayMin + Math.floor(Math.random() * (delayMax - delayMin + 1));
+
+  waEngine = {
+    running: true,
+    paused: false,
+    stopped: false,
+    processed: 0,
+    failed: 0,
+    total: recipients.length,
+    checkpoint: []
+  };
+
+  const validRecipients = recipients.filter((item) => item && (item.valid !== false));
+
+  for (let i = 0; i < validRecipients.length; i++) {
+    if (waEngine.stopped) break;
+    while (waEngine.paused) {
+      await sleep(300);
+    }
+
+    const recipient = validRecipients[i];
+    const displayName = recipient.displayName || recipient.id || recipient.normalized || 'Penerima';
+    send('current', { index: i, name: displayName, id: recipient.id || recipient.normalized || '' });
+
+    const message = resolveTemplateVars(template, recipient.rowData || {});
+    const chatId = recipient.type === 'group'
+      ? recipient.id
+      : `${String(recipient.normalized || recipient.id || '').replace(/\+/g, '')}@c.us`;
+
+    try {
+      await waClient.sendMessage(chatId, message);
+      waEngine.processed += 1;
+      waEngine.checkpoint.push({ id: recipient.id || recipient.normalized || '', status: 'success', time: new Date().toISOString() });
+      send('success', { index: i, id: recipient.id || recipient.normalized || '', processed: waEngine.processed });
+    } catch (error) {
+      waEngine.failed += 1;
+      waEngine.checkpoint.push({ id: recipient.id || recipient.normalized || '', status: 'failed', error: error.message || String(error), time: new Date().toISOString() });
+      send('failed', { index: i, id: recipient.id || recipient.normalized || '', failed: waEngine.failed, error: error.message || String(error) });
+    }
+
+    if (i < validRecipients.length - 1) {
+      const delayMs = randomDelay();
+      send('delay', { ms: delayMs });
+      await sleep(delayMs);
+    }
+  }
+
+  waEngine.running = false;
+  send('done', { processed: waEngine.processed, failed: waEngine.failed, total: waEngine.total });
+  return { ok: true, processed: waEngine.processed, failed: waEngine.failed };
+});
+
+ipcMain.handle('wa-pause', () => {
+  waEngine.paused = true;
+  return { ok: true };
+});
+
+ipcMain.handle('wa-resume', () => {
+  waEngine.paused = false;
+  return { ok: true };
+});
+
+ipcMain.handle('wa-stop', () => {
+  waEngine.stopped = true;
+  waEngine.running = false;
+  waEngine.paused = false;
+  return { ok: true };
+});
+
+ipcMain.handle('wa-export-report', async (event, { data = [], filename = 'wa-report.xlsx' }) => {
+  try {
+    const saveResult = await dialog.showSaveDialog({
+      defaultPath: filename,
+      filters: [{ name: 'Excel', extensions: ['xlsx'] }]
+    });
+
+    if (saveResult.canceled) {
+      return { ok: false };
+    }
+
+    const wb = XLSX.utils.book_new();
+    const ws = XLSX.utils.json_to_sheet(data.map((row) => ({
+      Name: row.name,
+      Number: row.number || row.id || '',
+      Status: row.status,
+      Time: row.time,
+      Error: row.error || ''
+    })));
+
+    XLSX.utils.book_append_sheet(wb, ws, 'Report');
+    XLSX.writeFile(wb, saveResult.filePath);
+    return { ok: true, filePath: saveResult.filePath };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
   }
 });
 

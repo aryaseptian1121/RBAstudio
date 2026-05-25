@@ -58,6 +58,8 @@ const openExcelLoopPanel = _panel.openExcelLoopPanel || (() => {});
 const closeExcelLoopPanel = _panel.closeExcelLoopPanel || (() => {});
 const _macroRecorderModule = safeRequire('./src/macroRecorder/macroRecorder.js') || {};
 const initMacroRecorder = _macroRecorderModule.initMacroRecorder || (() => {});
+const _whatsappBotModule = safeRequire('./src/whatsappBot/whatsappBot.js') || {};
+const initWhatsAppBot = _whatsappBotModule.initWhatsAppBot || (() => {});
 
 // Expose React to window for Excel Loop panel
 if (typeof React !== 'undefined') {
@@ -633,12 +635,13 @@ function redoAction() {
 
 // ─── View Switching ───────────────────────────────────────────
 let excelLoopPanel = null;
+let whatsappBotPanel = null;
 
 function switchView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
   document.getElementById(id).classList.add('active');
-  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', settings:'nav-set' };
+  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', settings:'nav-set' };
   if (map[id]) document.getElementById(map[id]).classList.add('active');
 
   if (id === 'excel-loop' && !excelLoopPanel) {
@@ -704,6 +707,18 @@ ${errorStack}</pre>
             }
           });
         }, 50);
+      }
+    }
+  }
+
+  if (id === 'whatsapp-bot' && !whatsappBotPanel) {
+    const mountEl = document.getElementById('whatsapp-bot');
+    if (mountEl) {
+      try {
+        whatsappBotPanel = initWhatsAppBot(mountEl);
+      } catch (error) {
+        console.error('[renderer] Failed to initialize WhatsApp Bot:', error);
+        mountEl.innerHTML = `<div style="padding:24px; color:#fca5a5;">Gagal memuat halaman WhatsApp Bot.</div>`;
       }
     }
   }

@@ -29,6 +29,19 @@ window.electronAPI = {
   macroList: () => ipcRenderer.invoke('macro-list'),
   macroLoad: (id) => ipcRenderer.invoke('macro-load', id),
   macroDelete: (id) => ipcRenderer.invoke('macro-delete', id),
+  waConnect: () => ipcRenderer.invoke('wa-connect'),
+  waDisconnect: () => ipcRenderer.invoke('wa-disconnect'),
+  waGetGroups: () => ipcRenderer.invoke('wa-get-groups'),
+  waParseExcel: (path) => ipcRenderer.invoke('wa-parse-excel', path),
+  waRun: (data) => ipcRenderer.invoke('wa-run', data),
+  waPause: () => ipcRenderer.invoke('wa-pause'),
+  waResume: () => ipcRenderer.invoke('wa-resume'),
+  waStop: () => ipcRenderer.invoke('wa-stop'),
+  waExportReport: (data) => ipcRenderer.invoke('wa-export-report', data),
+  onWaQr: (cb) => ipcRenderer.on('wa-qr', (e, img) => cb(img)),
+  onWaConnected: (cb) => ipcRenderer.on('wa-connected', (e, info) => cb(info)),
+  onWaDisconnected: (cb) => ipcRenderer.on('wa-disconnected', (e, reason) => cb(reason)),
+  onWaProgress: (cb) => ipcRenderer.on('wa-progress', (e, data) => cb(data)),
 };
 
 console.log('[Preload] electronAPI ready');
