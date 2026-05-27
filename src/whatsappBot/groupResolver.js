@@ -23,6 +23,30 @@ function normalizeGroupName(groupName = '') {
   return normalizeText(groupName);
 }
 
+const cpGroupOverrides = {
+  CP_TIANG_BENDERA: 'Monitoring Tiang Bendera',
+  CP_TIANG_BENDERA_2: 'Monitoring Tiang Bendera 2',
+  CP_SAWAH_BESAR_MANGGA_BESAR: 'Monitoring CP_MANGGA_BESAR',
+  CP_SAWAH_BESAR: 'Monitoring CP_MANGGA_BESAR',
+  CP_MANGGA_BESAR: 'Monitoring CP_MANGGA_BESAR'
+};
+
+function buildGroupName(cpName = '') {
+  const key = String(cpName ?? '').trim();
+  if (!key) {
+    return 'Monitoring';
+  }
+  return `Monitoring ${key.startsWith('CP_') ? key : `CP_${key}`}`;
+}
+
+function resolveGroupName(cpName = '') {
+  const normalized = String(cpName ?? '').trim();
+  if (!normalized) {
+    return '';
+  }
+  return cpGroupOverrides[normalized] || buildGroupName(normalized);
+}
+
 function splitKeywordWords(keyword = '') {
   return keyword.split(' ').map((segment) => segment.trim()).filter(Boolean);
 }
@@ -54,8 +78,37 @@ function pickBestMatch(matches = [], keyword = '') {
 }
 
 function resolveGroupByCP(cpName, allGroups = []) {
-  const keyword = extractKeyword(cpName);
   const groups = Array.isArray(allGroups) ? allGroups.filter(Boolean) : [];
+  const overrideGroupName = resolveGroupName(cpName);
+  const normalizedOverride = overrideGroupName ? normalizeGroupName(overrideGroupName) : '';
+
+  if (normalizedOverride) {
+    const overrideMatches = groups.filter((group) => normalizeGroupName(group.name) === normalizedOverride);
+    if (overrideMatches.length === 1) {
+      return {
+        found: true,
+        group: overrideMatches[0],
+        keyword: extractKeyword(cpName),
+        strategy: 'OVERRIDE',
+        ambiguous: false,
+        allMatches: [overrideMatches[0]]
+      };
+    }
+    if (overrideMatches.length > 1) {
+      const best = pickBestMatch(overrideMatches, extractKeyword(cpName));
+      return {
+        found: true,
+        group: best.group,
+        keyword: extractKeyword(cpName),
+        strategy: 'OVERRIDE',
+        ambiguous: true,
+        allMatches: overrideMatches,
+        bestScore: best.score
+      };
+    }
+  }
+
+  const keyword = extractKeyword(cpName);
 
   if (!keyword) {
     return {
@@ -161,5 +214,7 @@ module.exports = {
   normalizeText,
   extractKeyword,
   normalizeGroupName,
+  buildGroupName,
+  resolveGroupName,
   resolveGroupByCP
 };

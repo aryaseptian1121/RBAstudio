@@ -1,4 +1,4 @@
-const { renderTemplate } = require('./whatsappEngine');
+const { buildLogicFixMessage } = require('../messageTemplates');
 const { resolveGroupByCP, extractKeyword } = require('./groupResolver');
 
 function cpNameToDisplayName(value = '') {
@@ -89,46 +89,34 @@ function buildStatusBuckets(rows = []) {
 }
 
 function buildReminderMessageGrouped(cpName, buckets = {}, options = {}) {
-  const displayName = cpNameToDisplayName(cpName);
   const ready = buckets.ready || [];
   const pending = buckets.pending || [];
   const failed = buckets.failed || [];
-  const summaryParts = [];
+  const firstRow = ready[0] || pending[0] || failed[0] || {};
 
-  if (ready.length) {
-    summaryParts.push(`Ready (${ready.length}): ${ready.map(getRowIdentifier).join(', ')}`);
-  }
-  if (pending.length) {
-    summaryParts.push(`Pending (${pending.length}): ${pending.map(getRowIdentifier).join(', ')}`);
-  }
-  if (failed.length) {
-    summaryParts.push(`Failed (${failed.length}): ${failed.map(getRowIdentifier).join(', ')}`);
-  }
+  const awbs = [
+    ...ready.map((row) => row.awb || row.resi || row.invoice || row.order_id || row.orderId || row.order_no || row.orderNo || row.id || row.kode || row.code || getRowIdentifier(row)),
+    ...pending.map((row) => row.awb || row.resi || row.invoice || row.order_id || row.orderId || row.order_no || row.orderNo || row.id || row.kode || row.code || getRowIdentifier(row)),
+    ...failed.map((row) => row.awb || row.resi || row.invoice || row.order_id || row.orderId || row.order_no || row.orderNo || row.id || row.kode || row.code || getRowIdentifier(row))
+  ].filter(Boolean);
 
-  const summaryText = summaryParts.length
-    ? summaryParts.join('\n')
-    : 'Tidak ada data status yang dapat diproses.';
-
-  const fallback = `Halo ${displayName},\n\n${summaryText}`;
-  const vars = {
-    nama: displayName,
-    cp: displayName,
-    summary: summaryText,
-    readyCount: ready.length,
-    pendingCount: pending.length,
-    failedCount: failed.length,
-    totalCount: ready.length + pending.length + failed.length,
-    statusSummary: summaryText
-  };
-
-  if (!options.template) {
-    return fallback;
-  }
-
-  return renderTemplate(options.template, {
-    ...vars,
-    ...(ready[0] || pending[0] || failed[0] || {})
-  });
+  return buildLogicFixMessage(
+    {
+      cpName,
+      groupName: cpNameToDisplayName(cpName),
+      awbs,
+      statuses: {
+        ready: ready.length,
+        pending: pending.length,
+        failed: failed.length
+      }
+    },
+    {
+      mode: options.mode || 'auto',
+      template: options.template,
+      rowData: firstRow
+    }
+  );
 }
 
 function buildLogicFixPreview(rows = [], options = {}) {

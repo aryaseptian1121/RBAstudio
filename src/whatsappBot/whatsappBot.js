@@ -18,7 +18,8 @@ const {
   saveSettings
 } = require('./whatsappEngine');
 const { autoSendByLogicFix, getCpNameFromRow } = require('./logicFix');
-const { resolveGroupByCP, extractKeyword } = require('./groupResolver');
+const { resolveGroupByCP, extractKeyword, resolveGroupName } = require('./groupResolver');
+const { buildLogicFixMessage, getDefaultLogicFixTemplate, getLogicFixTemplateVariables } = require('../messageTemplates');
 
 function getSafeNumber(value) {
   const result = normalizePhone(value);
@@ -59,6 +60,62 @@ function getDefaultTemplate() {
   return 'Halo {{nama}},\n\nTerima kasih sudah melakukan transaksi.\nNomor: {{nomor}}\nResi: {{resi}}\n\nSalam,\nRBA Studio Pro';
 }
 
+function normalizeHeaderValue(value) {
+  return String(value ?? '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .replace(/[_-]+/g, ' ');
+}
+
+function resolveExcelColumnIndex(headers = [], candidates = []) {
+  const normalizedHeaders = (headers || []).map((header, index) => ({
+    header,
+    index,
+    normalized: normalizeHeaderValue(header)
+  }));
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeHeaderValue(candidate);
+    const found = normalizedHeaders.find((item) => item.normalized === normalizedCandidate);
+    if (found) {
+      return found.index;
+    }
+  }
+
+  for (const candidate of candidates) {
+    const normalizedCandidate = normalizeHeaderValue(candidate);
+    const found = normalizedHeaders.find((item) => item.normalized.includes(normalizedCandidate));
+    if (found) {
+      return found.index;
+    }
+  }
+
+  return null;
+}
+
+function resolveExcelColumns(headers = []) {
+  return {
+    awbIndex: resolveExcelColumnIndex(headers, ['No Resi', 'No. Resi', 'AWB', 'awb']),
+    cpIndex: resolveExcelColumnIndex(headers, ['CP_Name', 'CP_NAME', 'CP Name', 'cp_name', 'cp name', 'CP']),
+    statusIndex: resolveExcelColumnIndex(headers, ['Status Orderan', 'Status', 'status']),
+    sourceOrderIndex: resolveExcelColumnIndex(headers, ['Sumber Order', 'Sumber_Order', 'Sumber', 'Source Order', 'source order'])
+  };
+}
+
+function shouldIncludeSourceOrder(row = [], sourceOrderIndex = null) {
+  if (sourceOrderIndex === null || sourceOrderIndex === undefined) {
+    return true;
+  }
+
+  const sourceValue = String(row[sourceOrderIndex] ?? '').trim();
+  if (!sourceValue) {
+    return true;
+  }
+
+  return sourceValue.trim().toUpperCase().includes('KURIRREKOMENDASI');
+}
+
 function initWhatsAppBot(mountEl) {
   if (!mountEl) {
     return null;
@@ -86,6 +143,8 @@ function initWhatsAppBot(mountEl) {
     template: settings.template || getDefaultTemplate(),
     presets: loadTemplatePresets(),
     selectedPreset: '',
+    logicFixTemplateMode: settings.logicFixTemplateMode || 'auto',
+    logicFixTemplate: settings.logicFixTemplate || getDefaultLogicFixTemplate(),
     connectionStatus: 'idle',
     qrImage: '',
     qrCountdown: 60,
@@ -284,20 +343,194 @@ function initWhatsAppBot(mountEl) {
             </div>
             <div style="margin-top:14px; padding:12px; border-radius:12px; background:rgba(15,23,42,0.8); border:1px solid rgba(148,163,184,0.16);">
               <div style="font-size:12px; text-transform:uppercase; color:#94a3b8; margin-bottom:8px;">Auto Send by Logic Fix</div>
-              <div style="font-size:12px; color:#cbd5e1; margin-bottom:10px;">Sistem akan otomatis mencari grup WhatsApp berdasarkan kecocokan nama CP dari Excel.</div>
-              <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center;">
-                <button id="wa-logic-preview" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">🔄 Refresh Deteksi Grup</button>
-                <button id="wa-logic-run" style="border:none; border-radius:10px; padding:10px 14px; background:#1d4ed8; color:#fff; cursor:pointer;">🚀 Jalankan Logic Fix</button>
-                <label style="font-size:12px; color:#cbd5e1;">Dry run<input id="wa-logic-dry-run" type="checkbox" ${state.logicFixDryRun ? 'checked' : ''} style="display:block; margin-top:6px;" /></label>
+              <div id="logic-fix-section" style="background:#111827;border:1px solid #1e3a5f;border-radius:10px;padding:20px;margin-top:16px;">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">
+                  <span style="font-size:16px;">🔄</span>
+                  <h3 style="margin:0;font-size:15px;font-weight:600;color:#f8fafc;">Auto Send by Logic Fix</h3>
+                </div>
+                <p style="margin:0 0 20px;font-size:13px;color:#64748b;">
+                  Upload Excel → sistem otomatis deteksi CP → kirim ke grup "Monitoring CP_XXX" yang sesuai.
+                </p>
+
+                <div class="lf-step" id="lf-step-1">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:#1e40af;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;">1</div>
+                    <span style="font-size:14px;font-weight:600;color:#f8fafc;">Upload File Excel</span>
+                    <span id="lf-excel-status" style="font-size:12px;color:#64748b;margin-left:auto;">Belum ada file</span>
+                  </div>
+
+                  <div style="display:flex;gap:10px;align-items:stretch;margin-bottom:12px;">
+                    <input id="lf-excel-path" readonly placeholder="Pilih file .xlsx atau .xls..." style="flex:1;padding:9px 12px;background:#1e293b;border:1px solid #334155;border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;" />
+                    <button id="lf-browse-btn" style="padding:9px 18px;background:#1e40af;color:white;border:none;border-radius:8px;font-size:13px;font-weight:600;cursor:pointer;white-space:nowrap;">📂 Browse Excel</button>
+                    <input type="file" id="lf-excel-file-input" accept=".xlsx,.xls,.csv" style="display:none;" />
+                  </div>
+
+                  <div id="lf-column-config" style="display:none;">
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:10px;">
+                      <div>
+                        <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Kolom AWB / Nomor Resi</label>
+                        <select id="lf-col-awb" style="width:100%;padding:7px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#f8fafc;font-size:13px;">
+                          <option value="">-- Pilih Kolom --</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Kolom Nama CP</label>
+                        <select id="lf-col-cp" style="width:100%;padding:7px 10px;background:#1e293b;border:1px solid #334151;border-radius:6px;color:#f8fafc;font-size:13px;">
+                          <option value="">-- Pilih Kolom --</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style="display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;">Kolom Status (opsional)</label>
+                        <select id="lf-col-status" style="width:100%;padding:7px 10px;background:#1e293b;border:1px solid #334155;border-radius:6px;color:#f8fafc;font-size:13px;">
+                          <option value="">-- Tidak Ada --</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div class="lf-step" id="lf-step-2" style="display:none;margin-top:16px;">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:#1e40af;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;">2</div>
+                    <span style="font-size:14px;font-weight:600;color:#f8fafc;">Preview & Konfirmasi Data</span>
+                  </div>
+
+                  <div style="background:#0f172a;border-radius:10px;padding:12px;margin-bottom:12px; border:1px solid rgba(59,130,246,0.18);">
+                    <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-bottom:10px;">
+                      <div>
+                        <div style="font-size:12px;color:#64748b;">Template Logic Fix</div>
+                        <div style="font-size:14px;font-weight:700;color:#f8fafc;">Manual & Auto Message</div>
+                      </div>
+                      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+                        <select id="lf-template-mode" style="border-radius:10px; border:1px solid rgba(148,163,184,0.2); background:#020617; color:#f8fafc; padding:10px 12px; min-width:170px;">
+                          <option value="auto" ${state.logicFixTemplateMode === 'auto' ? 'selected' : ''}>Auto (generated)</option>
+                          <option value="manual" ${state.logicFixTemplateMode === 'manual' ? 'selected' : ''}>Manual</option>
+                        </select>
+                        <button id="lf-template-reset" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">↺ Reset</button>
+                      </div>
+                    </div>
+
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
+                      <button data-lf-template-var="{{cp_name}}" style="border:none; border-radius:10px; padding:8px 12px; background:#1e40af; color:#fff; cursor:pointer; font-size:12px;">CP</button>
+                      <button data-lf-template-var="{{group_name}}" style="border:none; border-radius:10px; padding:8px 12px; background:#1e40af; color:#fff; cursor:pointer; font-size:12px;">Grup</button>
+                      <button data-lf-template-var="{{awb_count}}" style="border:none; border-radius:10px; padding:8px 12px; background:#1e40af; color:#fff; cursor:pointer; font-size:12px;">Jumlah AWB</button>
+                      <button data-lf-template-var="{{awb_list}}" style="border:none; border-radius:10px; padding:8px 12px; background:#1e40af; color:#fff; cursor:pointer; font-size:12px;">AWB List</button>
+                      <button data-lf-template-var="{{status_summary}}" style="border:none; border-radius:10px; padding:8px 12px; background:#1e40af; color:#fff; cursor:pointer; font-size:12px;">Status</button>
+                    </div>
+
+                    <textarea id="lf-template-editor" style="width:100%; min-height:120px; border-radius:12px; border:1px solid rgba(148,163,184,0.2); background:#020617; color:#f8fafc; padding:12px; font-family:ui-monospace, SFMono-Regular, monospace; resize:vertical;">${escapeHtml(state.logicFixTemplate)}</textarea>
+
+                    <div style="display:grid;grid-template-columns:repeat(2, minmax(0, 1fr)); gap:12px; margin-top:12px;">
+                      <div>
+                        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">Preview pesan Logic Fix</div>
+                        <pre id="lf-template-preview" style="margin:0; min-height:140px; padding:12px; border-radius:10px; background:#020617; color:#cbd5e1; font-family:ui-monospace, SFMono-Regular, monospace; font-size:12px; white-space:pre-wrap; overflow:auto;"></pre>
+                      </div>
+                      <div>
+                        <div style="font-size:12px;color:#64748b;margin-bottom:6px;">Variabel tersedia</div>
+                        <div id="lf-template-vars" style="padding:12px; border-radius:10px; background:#020617; color:#cbd5e1; font-size:12px; line-height:1.7;"></div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div id="lf-summary" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:12px;"></div>
+
+                  <div id="lf-preview-table-wrap" style="background:#0f172a;border-radius:8px;max-height:180px;overflow:auto;margin-bottom:12px;">
+                    <table id="lf-preview-table" style="width:100%;border-collapse:collapse;font-size:12px;"></table>
+                  </div>
+
+                  <div id="lf-groups-preview" style="background:#0f172a;border-radius:8px;padding:12px;margin-bottom:12px;">
+                    <div style="font-size:12px;color:#64748b;margin-bottom:8px;">Grup yang akan menerima pesan:</div>
+                    <div id="lf-groups-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+                  </div>
+                </div>
+
+                <div class="lf-step" id="lf-step-3" style="display:none;margin-top:16px;">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:#1e40af;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;">3</div>
+                    <span style="font-size:14px;font-weight:600;color:#f8fafc;">Sambung WhatsApp</span>
+                    <span id="lf-wa-status-badge" style="margin-left:auto;padding:3px 10px;border-radius:20px;font-size:11px;background:#7f1d1d;color:#fca5a5;">Belum terhubung</span>
+                  </div>
+
+                  <div id="lf-qr-area" style="text-align:center;padding:20px;">
+                    <button id="lf-connect-btn" style="padding:12px 28px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;">📱 Sambungkan WhatsApp</button>
+                    <p style="font-size:12px;color:#64748b;margin-top:8px;">Klik untuk generate QR Code, lalu scan dengan WhatsApp di HP</p>
+                  </div>
+
+                  <div id="lf-qr-display" style="display:none;text-align:center;">
+                    <img id="lf-qr-img" style="width:200px;height:200px;border-radius:10px;border:3px solid #1e40af;" />
+                    <div style="margin-top:8px;font-size:13px;color:#94a3b8;">Scan QR ini dengan WhatsApp di HP kamu</div>
+                    <div id="lf-qr-timer" style="margin-top:4px;font-size:12px;color:#f59e0b;">⏱ Timeout: 60 detik</div>
+                  </div>
+
+                  <div id="lf-wa-connected-info" style="display:none;background:#052e16;border:1px solid #16a34a;border-radius:8px;padding:12px;text-align:center;">
+                    <div style="font-size:20px;margin-bottom:6px;">✅</div>
+                    <div id="lf-wa-user-name" style="font-size:14px;font-weight:600;color:#4ade80;"></div>
+                    <div id="lf-wa-user-number" style="font-size:12px;color:#16a34a;"></div>
+                    <button id="lf-disconnect-btn" style="margin-top:8px;padding:5px 14px;background:transparent;color:#64748b;border:1px solid #334155;border-radius:6px;font-size:12px;cursor:pointer;">Ganti Akun</button>
+                  </div>
+                </div>
+
+                <div class="lf-step" id="lf-step-4" style="display:none;margin-top:16px;">
+                  <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;">
+                    <div style="width:24px;height:24px;border-radius:50%;background:#1e40af;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:white;flex-shrink:0;">4</div>
+                    <span style="font-size:14px;font-weight:600;color:#f8fafc;">Jalankan & Monitor</span>
+                  </div>
+
+                  <div style="background:#1e293b;border-radius:6px;height:6px;margin-bottom:10px;overflow:hidden;">
+                    <div id="lf-progress-bar" style="height:100%;background:#1e40af;border-radius:6px;width:0%;transition:width 0.3s;"></div>
+                  </div>
+
+                  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">
+                    <div style="background:#1e293b;border-radius:8px;padding:10px;text-align:center;">
+                      <div style="font-size:18px;font-weight:700;color:#f8fafc;" id="lf-stat-total">0</div>
+                      <div style="font-size:11px;color:#64748b;">Total Grup</div>
+                    </div>
+                    <div style="background:#1e293b;border-radius:8px;padding:10px;text-align:center;">
+                      <div style="font-size:18px;font-weight:700;color:#22c55e;" id="lf-stat-sent">0</div>
+                      <div style="font-size:11px;color:#64748b;">Terkirim</div>
+                    </div>
+                    <div style="background:#1e293b;border-radius:8px;padding:10px;text-align:center;">
+                      <div style="font-size:18px;font-weight:700;color:#ef4444;" id="lf-stat-failed">0</div>
+                      <div style="font-size:11px;color:#64748b;">Gagal</div>
+                    </div>
+                    <div style="background:#1e293b;border-radius:8px;padding:10px;text-align:center;">
+                      <div style="font-size:18px;font-weight:700;color:#f59e0b;" id="lf-stat-pending">0</div>
+                      <div style="font-size:11px;color:#64748b;">Menunggu</div>
+                    </div>
+                  </div>
+
+                  <div id="lf-current-status" style="font-size:13px;color:#94a3b8;margin-bottom:10px;padding:8px 12px;background:#1e293b;border-radius:6px;">Siap dijalankan</div>
+                  <div id="lf-log" style="background:#0f172a;border-radius:8px;padding:12px;height:150px;overflow-y:auto;font-family:monospace;font-size:11px;margin-bottom:12px;"></div>
+
+                  <div style="display:flex;gap:8px;">
+                    <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#94a3b8;cursor:pointer;margin-right:8px;">
+                      <input type="checkbox" id="lf-dry-run" /> Dry Run (simulasi)
+                    </label>
+                    <div style="flex:1;"></div>
+                    <button id="lf-run-btn" style="flex:1;padding:11px;background:#16a34a;color:white;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">▶ JALANKAN</button>
+                    <button id="lf-pause-btn" style="padding:11px 16px;background:#d97706;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">⏸</button>
+                    <button id="lf-stop-btn" style="padding:11px 16px;background:#dc2626;color:white;border:none;border-radius:8px;font-size:13px;cursor:pointer;">■</button>
+                  </div>
+                </div>
+
+                <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
+                  <button id="wa-run" style="border:none; border-radius:10px; padding:10px 14px; background:#16a34a; color:#fff; cursor:pointer;">▶ RUN</button>
+                  <button id="wa-pause" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">⏸ PAUSE</button>
+                  <button id="wa-resume" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">▶️ RESUME</button>
+                  <button id="wa-stop" style="border:none; border-radius:10px; padding:10px 14px; background:#7f1d1d; color:#fff; cursor:pointer;">■ STOP</button>
+                </div>
+
+                <div style="margin-top:18px; padding:12px; border-radius:12px; background:#0f172a; border:1px dashed rgba(148,163,184,0.16);">
+                  <div style="font-size:12px; text-transform:uppercase; color:#94a3b8; margin-bottom:8px;">Legacy controls</div>
+                  <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:10px; align-items:center;">
+                    <button id="wa-logic-preview" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">🔄 Refresh Deteksi Grup</button>
+                    <button id="wa-logic-run" style="border:none; border-radius:10px; padding:10px 14px; background:#1d4ed8; color:#fff; cursor:pointer;">🚀 Jalankan Logic Fix</button>
+                    <label style="font-size:12px; color:#cbd5e1;">Dry run<input id="wa-logic-dry-run" type="checkbox" ${state.logicFixDryRun ? 'checked' : ''} style="display:block; margin-top:6px;" /></label>
+                  </div>
+                  <div id="wa-logic-status" style="margin-top:10px; font-size:12px; color:#cbd5e1;">${escapeHtml(state.logicFixStatus)}</div>
+                  <div id="wa-logic-preview-area" style="margin-top:10px; min-height:110px; padding:12px; border-radius:12px; background:#020617; color:#cbd5e1; font-size:12px; overflow:auto;"></div>
+                </div>
               </div>
-              <div id="wa-logic-status" style="margin-top:10px; font-size:12px; color:#cbd5e1;">${escapeHtml(state.logicFixStatus)}</div>
-              <div id="wa-logic-preview-area" style="margin-top:10px; min-height:110px; padding:12px; border-radius:12px; background:#020617; color:#cbd5e1; font-size:12px; overflow:auto;"></div>
-            </div>
-            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-top:14px;">
-              <button id="wa-run" style="border:none; border-radius:10px; padding:10px 14px; background:#16a34a; color:#fff; cursor:pointer;">▶ RUN</button>
-              <button id="wa-pause" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">⏸ PAUSE</button>
-              <button id="wa-resume" style="border:none; border-radius:10px; padding:10px 14px; background:#0f172a; color:#f8fafc; border:1px solid rgba(148,163,184,0.2); cursor:pointer;">▶️ RESUME</button>
-              <button id="wa-stop" style="border:none; border-radius:10px; padding:10px 14px; background:#7f1d1d; color:#fff; cursor:pointer;">■ STOP</button>
             </div>
             <div id="wa-run-log" style="margin-top:14px; min-height:160px; padding:12px; border-radius:12px; background:#020617; color:#cbd5e1; overflow-y:auto; font-size:12px;"></div>
           </div>
@@ -365,7 +598,47 @@ function initWhatsAppBot(mountEl) {
     logicRun: mountEl.querySelector('#wa-logic-run'),
     logicDryRun: mountEl.querySelector('#wa-logic-dry-run'),
     logicStatus: mountEl.querySelector('#wa-logic-status'),
-    logicPreviewArea: mountEl.querySelector('#wa-logic-preview-area')
+    logicPreviewArea: mountEl.querySelector('#wa-logic-preview-area'),
+    lfExcelPath: mountEl.querySelector('#lf-excel-path'),
+    lfExcelStatus: mountEl.querySelector('#lf-excel-status'),
+    lfExcelFileInput: mountEl.querySelector('#lf-excel-file-input'),
+    lfBrowseBtn: mountEl.querySelector('#lf-browse-btn'),
+    lfColumnConfig: mountEl.querySelector('#lf-column-config'),
+    lfColAwb: mountEl.querySelector('#lf-col-awb'),
+    lfColCp: mountEl.querySelector('#lf-col-cp'),
+    lfColStatus: mountEl.querySelector('#lf-col-status'),
+    lfStep2: mountEl.querySelector('#lf-step-2'),
+    lfStep3: mountEl.querySelector('#lf-step-3'),
+    lfStep4: mountEl.querySelector('#lf-step-4'),
+    lfSummary: mountEl.querySelector('#lf-summary'),
+    lfPreviewTable: mountEl.querySelector('#lf-preview-table'),
+    lfGroupsList: mountEl.querySelector('#lf-groups-list'),
+    lfTemplateMode: mountEl.querySelector('#lf-template-mode'),
+    lfTemplateEditor: mountEl.querySelector('#lf-template-editor'),
+    lfTemplateReset: mountEl.querySelector('#lf-template-reset'),
+    lfTemplatePreview: mountEl.querySelector('#lf-template-preview'),
+    lfTemplateVars: mountEl.querySelector('#lf-template-vars'),
+    lfWaStatusBadge: mountEl.querySelector('#lf-wa-status-badge'),
+    lfConnectBtn: mountEl.querySelector('#lf-connect-btn'),
+    lfQrArea: mountEl.querySelector('#lf-qr-area'),
+    lfQrDisplay: mountEl.querySelector('#lf-qr-display'),
+    lfQrImg: mountEl.querySelector('#lf-qr-img'),
+    lfQrTimer: mountEl.querySelector('#lf-qr-timer'),
+    lfWaConnectedInfo: mountEl.querySelector('#lf-wa-connected-info'),
+    lfWaUserName: mountEl.querySelector('#lf-wa-user-name'),
+    lfWaUserNumber: mountEl.querySelector('#lf-wa-user-number'),
+    lfDisconnectBtn: mountEl.querySelector('#lf-disconnect-btn'),
+    lfProgressBar: mountEl.querySelector('#lf-progress-bar'),
+    lfStatTotal: mountEl.querySelector('#lf-stat-total'),
+    lfStatSent: mountEl.querySelector('#lf-stat-sent'),
+    lfStatFailed: mountEl.querySelector('#lf-stat-failed'),
+    lfStatPending: mountEl.querySelector('#lf-stat-pending'),
+    lfCurrentStatus: mountEl.querySelector('#lf-current-status'),
+    lfLog: mountEl.querySelector('#lf-log'),
+    lfDryRun: mountEl.querySelector('#lf-dry-run'),
+    lfRunBtn: mountEl.querySelector('#lf-run-btn'),
+    lfPauseBtn: mountEl.querySelector('#lf-pause-btn'),
+    lfStopBtn: mountEl.querySelector('#lf-stop-btn')
   };
 
   function addLog(message, level = 'info') {
@@ -526,7 +799,8 @@ function initWhatsAppBot(mountEl) {
     addLog('Memulai Auto Send by Logic Fix', 'info');
 
     const outcome = await autoSendByLogicFix(rows, {
-      template: elements.templateEditor.value || state.template,
+      mode: state.logicFixTemplateMode,
+      template: state.logicFixTemplate,
       retry: state.options.retry,
       delayMs: state.options.delayMin,
       dryRun: state.logicFixDryRun,
@@ -795,6 +1069,48 @@ function initWhatsAppBot(mountEl) {
     elements.templatePreview.textContent = text || '-';
   }
 
+  function renderLogicFixTemplatePreview() {
+    const selectedGroup = lfState.groups[0];
+    if (!selectedGroup) {
+      elements.lfTemplatePreview.textContent = 'Belum ada data Logic Fix untuk ditampilkan.';
+      elements.lfTemplateVars.innerHTML = getLogicFixTemplateVariables().map((variable) => `<div>${escapeHtml(variable)}</div>`).join('');
+      return;
+    }
+
+    const message = buildLogicFixMessage(
+      {
+        cpName: selectedGroup.cpName,
+        groupName: selectedGroup.groupName,
+        awbs: selectedGroup.awbs,
+        statuses: selectedGroup.statuses
+      },
+      {
+        mode: state.logicFixTemplateMode,
+        template: state.logicFixTemplate
+      }
+    );
+
+    elements.lfTemplatePreview.textContent = message || '-';
+    elements.lfTemplateVars.innerHTML = getLogicFixTemplateVariables().map((variable) => `<div>${escapeHtml(variable)}</div>`).join('');
+    elements.lfTemplateEditor.disabled = state.logicFixTemplateMode === 'auto';
+    elements.lfTemplateEditor.placeholder = state.logicFixTemplateMode === 'auto'
+      ? 'Auto mode menggunakan template bawaan. Pilih Manual untuk mengedit.'
+      : 'Tulis template pesan manual untuk Logic Fix...';
+  }
+
+  function updateLogicFixTemplateSettings() {
+    state.logicFixTemplateMode = elements.lfTemplateMode.value || 'auto';
+    state.logicFixTemplate = elements.lfTemplateEditor.value || getDefaultLogicFixTemplate();
+    saveSettings({
+      ...state.options,
+      template: state.template,
+      logicFixDryRun: state.logicFixDryRun,
+      logicFixTemplateMode: state.logicFixTemplateMode,
+      logicFixTemplate: state.logicFixTemplate
+    });
+    renderLogicFixTemplatePreview();
+  }
+
   function updateReportSummary() {
     renderReportTable();
   }
@@ -810,7 +1126,9 @@ function initWhatsAppBot(mountEl) {
     saveSettings({
       ...state.options,
       template: state.template,
-      logicFixDryRun: state.logicFixDryRun
+      logicFixDryRun: state.logicFixDryRun,
+      logicFixTemplateMode: state.logicFixTemplateMode,
+      logicFixTemplate: state.logicFixTemplate
     });
   }
 
@@ -860,6 +1178,373 @@ function initWhatsAppBot(mountEl) {
     clearInterval(state.qrTimer);
     elements.qrMeta.textContent = 'Status: akun WhatsApp terhubung.';
     addLog(`Tersambung ke ${info.name || info.number || 'akun WhatsApp'}`, 'success');
+  }
+
+  const lfState = {
+    excelData: null,
+    headers: [],
+    groups: [],
+    waConnected: false,
+    running: false,
+    qrTimer: null
+  };
+
+  function lfAddLog(message, level = 'info') {
+    const time = new Date().toLocaleTimeString();
+    const color = level === 'error' ? '#f87171' : level === 'success' ? '#4ade80' : level === 'warn' ? '#fbbf24' : '#94a3b8';
+    const div = document.createElement('div');
+    div.style.cssText = `color:${color};margin-bottom:2px;`;
+    div.textContent = `[${time}] ${message}`;
+    elements.lfLog.appendChild(div);
+    elements.lfLog.scrollTop = elements.lfLog.scrollHeight;
+  }
+
+  function lfResetState() {
+    elements.lfSummary.innerHTML = '';
+    elements.lfPreviewTable.innerHTML = '';
+    elements.lfGroupsList.innerHTML = '';
+    elements.lfStatTotal.textContent = '0';
+    elements.lfStatSent.textContent = '0';
+    elements.lfStatFailed.textContent = '0';
+    elements.lfStatPending.textContent = '0';
+    elements.lfCurrentStatus.textContent = 'Siap dijalankan';
+    elements.lfProgressBar.style.width = '0%';
+    elements.lfLog.innerHTML = '';
+    if (elements.lfTemplatePreview) {
+      elements.lfTemplatePreview.textContent = 'Belum ada data Logic Fix untuk ditampilkan.';
+    }
+  }
+
+  function lfShowQr(img) {
+    clearInterval(lfState.qrTimer);
+    elements.lfQrArea.style.display = 'none';
+    elements.lfQrDisplay.style.display = 'block';
+    elements.lfQrImg.src = img;
+    elements.lfQrTimer.textContent = '⏱ Timeout: 60 detik';
+
+    let countdown = 60;
+    lfState.qrTimer = setInterval(() => {
+      countdown -= 1;
+      elements.lfQrTimer.textContent = `⏱ Timeout: ${countdown} detik`;
+      if (countdown <= 0) {
+        clearInterval(lfState.qrTimer);
+      }
+    }, 1000);
+  }
+
+  function lfShowDisconnected() {
+    lfState.waConnected = false;
+    clearInterval(lfState.qrTimer);
+    elements.lfQrArea.style.display = 'block';
+    elements.lfQrDisplay.style.display = 'none';
+    elements.lfConnectBtn.disabled = false;
+    elements.lfConnectBtn.textContent = '📱 Sambungkan WhatsApp';
+    elements.lfWaConnectedInfo.style.display = 'none';
+    elements.lfWaStatusBadge.textContent = 'Belum terhubung';
+    elements.lfWaStatusBadge.style.background = '#7f1d1d';
+    elements.lfWaStatusBadge.style.color = '#fca5a5';
+    if (elements.lfCurrentStatus) {
+      elements.lfCurrentStatus.textContent = 'Menunggu sambungan WhatsApp';
+    }
+  }
+
+  function lfShowConnected(info) {
+    lfState.waConnected = true;
+    clearInterval(lfState.qrTimer);
+    elements.lfQrArea.style.display = 'none';
+    elements.lfQrDisplay.style.display = 'none';
+    elements.lfWaConnectedInfo.style.display = 'block';
+    elements.lfWaUserName.textContent = '✅ ' + (info.name || 'Terhubung');
+    elements.lfWaUserNumber.textContent = '+' + (info.number || '');
+    elements.lfWaStatusBadge.textContent = '✅ Terhubung';
+    elements.lfWaStatusBadge.style.background = '#052e16';
+    elements.lfWaStatusBadge.style.color = '#4ade80';
+    elements.lfCurrentStatus.textContent = 'WhatsApp terhubung. Siap menjalankan.';
+  }
+
+  function lfRenderPreview() {
+    const data = lfState.excelData?.data || [];
+    const awbCol = parseInt(elements.lfColAwb.value, 10);
+    const previewRows = data.slice(0, 10);
+    const totalAwb = data.filter((row) => String(row[awbCol] || '').trim()).length;
+    const totalGroups = lfState.groups.length;
+
+    elements.lfSummary.innerHTML = [
+      { label: 'Total AWB', value: totalAwb, color: '#3b82f6' },
+      { label: 'Total CP/Grup', value: totalGroups, color: '#8b5cf6' },
+      { label: 'Rata-rata AWB/Grup', value: totalGroups > 0 ? Math.round(totalAwb / totalGroups) : 0, color: '#10b981' }
+    ].map((item) => `
+      <div style="background:#1e293b;border-radius:8px;padding:12px;text-align:center;">
+        <div style="font-size:20px;font-weight:700;color:${item.color};">${item.value}</div>
+        <div style="font-size:11px;color:#64748b;margin-top:2px;">${item.label}</div>
+      </div>`).join('');
+
+    elements.lfPreviewTable.innerHTML = `
+      <thead>
+        <tr>
+          ${lfState.headers.map((header) => `<th style="padding:6px 10px;background:#1e3a5f;color:#93c5fd;font-size:11px;text-align:left;white-space:nowrap;">${escapeHtml(header)}</th>`).join('')}
+        </tr>
+      </thead>
+      <tbody>
+        ${previewRows.map((row, index) => `
+          <tr style="background:${index % 2 === 0 ? '#0f172a' : '#111827'};">
+            ${lfState.headers.map((_, colIndex) => `<td style="padding:5px 10px;color:#94a3b8;font-size:11px;border-bottom:1px solid #1e293b;white-space:nowrap;">${escapeHtml(row[colIndex] || '')}</td>`).join('')}
+          </tr>
+        `).join('')}
+      </tbody>`;
+
+    elements.lfGroupsList.innerHTML = lfState.groups.length
+      ? lfState.groups.map((group) => `<span style="padding:4px 10px;background:#1e3a5f;color:#60a5fa;border-radius:20px;font-size:11px;">${escapeHtml(group.groupName)} (${group.awbs.length} AWB)</span>`).join('')
+      : '<span style="font-size:12px;color:#64748b;">Belum ada grup</span>';
+
+    elements.lfStatTotal.textContent = String(totalGroups);
+    elements.lfStatPending.textContent = String(totalGroups);
+    elements.lfStatSent.textContent = '0';
+    elements.lfStatFailed.textContent = '0';
+  }
+
+  function lfProcessData() {
+    const resolvedColumns = resolveExcelColumns(lfState.headers || []);
+    const awbCol = parseInt(elements.lfColAwb.value, 10);
+    const cpCol = parseInt(elements.lfColCp.value, 10);
+    const statusCol = elements.lfColStatus.value;
+    const resolvedAwbCol = Number.isNaN(awbCol) ? resolvedColumns.awbIndex : awbCol;
+    const resolvedCpCol = Number.isNaN(cpCol) ? resolvedColumns.cpIndex : cpCol;
+    const resolvedStatusCol = statusCol === '' ? resolvedColumns.statusIndex : parseInt(statusCol, 10);
+    const sourceOrderCol = resolvedColumns.sourceOrderIndex;
+
+    if (resolvedAwbCol === null || resolvedCpCol === null) {
+      return;
+    }
+
+    const data = lfState.excelData?.data || [];
+    const grouped = {};
+
+    data.forEach((row) => {
+      if (!shouldIncludeSourceOrder(row, sourceOrderCol)) {
+        return;
+      }
+
+      const awb = String(row[resolvedAwbCol] || '').trim();
+      const cp = String(row[resolvedCpCol] || '').trim();
+      if (!awb || !cp) {
+        return;
+      }
+
+      const normalizedCp = cp.trim();
+      const groupName = resolveGroupName(normalizedCp);
+      if (!groupName) {
+        return;
+      }
+
+      if (!grouped[groupName]) {
+        grouped[groupName] = { cpName: normalizedCp, groupName, awbs: [], statuses: {} };
+      }
+
+      grouped[groupName].awbs.push(awb);
+      if (resolvedStatusCol !== null && resolvedStatusCol !== undefined) {
+        const status = String(row[resolvedStatusCol] || '').trim();
+        if (status) {
+          grouped[groupName].statuses[status] = (grouped[groupName].statuses[status] || 0) + 1;
+        }
+      }
+    });
+
+    lfState.groups = Object.values(grouped);
+    lfRenderPreview();
+    renderLogicFixTemplatePreview();
+    elements.lfStep2.style.display = 'block';
+    elements.lfStep3.style.display = 'block';
+    elements.lfStep4.style.display = 'block';
+    elements.lfCurrentStatus.textContent = 'Data siap diverifikasi';
+  }
+
+  async function lfHandleExcelFile(file) {
+    if (!file) {
+      return;
+    }
+
+    const filePath = file.path || file.name;
+    elements.lfExcelPath.value = filePath;
+    elements.lfExcelStatus.textContent = 'Memuat...';
+    lfResetState();
+
+    const result = await window.electronAPI.invoke('wa-parse-excel', filePath);
+    if (!result.ok) {
+      elements.lfExcelStatus.textContent = `❌ Gagal: ${result.message}`;
+      lfAddLog(result.message || 'Gagal memproses Excel', 'error');
+      return;
+    }
+
+    lfState.excelData = result;
+    lfState.headers = result.headers || [];
+    elements.lfColumnConfig.style.display = 'block';
+
+    const resolvedColumns = resolveExcelColumns(lfState.headers);
+
+    ['lf-col-awb', 'lf-col-cp', 'lf-col-status'].forEach((id) => {
+      const select = mountEl.querySelector(`#${id}`);
+      const currentValue = select.value;
+      select.innerHTML = id === 'lf-col-status'
+        ? '<option value="">-- Tidak Ada --</option>'
+        : '<option value="">-- Pilih Kolom --</option>';
+
+      (lfState.headers || []).forEach((header, index) => {
+        const option = document.createElement('option');
+        option.value = String(index);
+        option.textContent = `Kolom ${String.fromCharCode(65 + index)}: ${header}`;
+        select.appendChild(option);
+      });
+
+      const resolvedValue = id === 'lf-col-awb'
+        ? resolvedColumns.awbIndex
+        : id === 'lf-col-cp'
+          ? resolvedColumns.cpIndex
+          : resolvedColumns.statusIndex;
+
+      const nextValue = resolvedValue === null || resolvedValue === undefined ? '' : String(resolvedValue);
+      select.value = nextValue || currentValue || '';
+    });
+
+    elements.lfExcelStatus.textContent = `✅ ${result.totalRows} baris ditemukan`;
+    lfAddLog(`Excel siap: ${result.totalRows} baris`, 'success');
+    lfProcessData();
+  }
+
+  async function lfConnectWhatsApp() {
+    if (lfState.running) {
+      return;
+    }
+
+    elements.lfConnectBtn.disabled = true;
+    elements.lfConnectBtn.textContent = '⏳ Menghubungkan...';
+    elements.lfQrArea.style.display = 'none';
+    elements.lfQrDisplay.style.display = 'block';
+    elements.lfQrImg.src = '';
+    elements.lfQrTimer.textContent = '⏱ Timeout: 60 detik';
+
+    try {
+      const result = await window.electronAPI.invoke('wa-connect');
+      if (!result.ok) {
+        lfShowDisconnected();
+        lfAddLog(result.message || 'Gagal menghubungkan WhatsApp', 'error');
+      }
+    } catch (error) {
+      lfShowDisconnected();
+      lfAddLog(error.message || 'Gagal menghubungkan WhatsApp', 'error');
+    }
+  }
+
+  async function lfDisconnect() {
+    try {
+      await window.electronAPI.invoke('wa-disconnect');
+    } catch (error) {
+      lfAddLog(error.message || 'Gagal memutuskan WhatsApp', 'error');
+    }
+    lfShowDisconnected();
+  }
+
+  async function lfRun() {
+    if (!lfState.excelData) {
+      lfAddLog('Upload Excel terlebih dahulu sebelum menjalankan.', 'warn');
+      elements.lfCurrentStatus.textContent = 'Upload Excel terlebih dahulu';
+      return;
+    }
+
+    if (!lfState.waConnected) {
+      lfAddLog('WhatsApp belum terhubung. Scan QR dulu di Step 3.', 'warn');
+      elements.lfCurrentStatus.textContent = 'WhatsApp belum terhubung';
+      return;
+    }
+
+    if (!lfState.groups.length) {
+      lfAddLog('Tidak ada grup untuk dikirim. Periksa konfigurasi kolom.', 'warn');
+      elements.lfCurrentStatus.textContent = 'Tidak ada grup untuk dikirim';
+      return;
+    }
+
+    lfState.running = true;
+    elements.lfCurrentStatus.textContent = 'Menjalankan pengiriman...';
+    elements.lfLog.innerHTML = '';
+    lfAddLog(lfState.running ? '🚀 Mulai kirim...' : '');
+
+    const isDryRun = elements.lfDryRun.checked;
+    let sent = 0;
+    let failed = 0;
+
+    for (let index = 0; index < lfState.groups.length; index += 1) {
+      if (!lfState.running) {
+        break;
+      }
+
+      const group = lfState.groups[index];
+      const message = buildLogicFixMessage(
+        {
+          cpName: group.cpName,
+          groupName: group.groupName,
+          awbs: group.awbs,
+          statuses: group.statuses
+        },
+        {
+          mode: state.logicFixTemplateMode,
+          template: state.logicFixTemplate
+        }
+      );
+
+      elements.lfCurrentStatus.textContent = `Mengirim ke: ${group.groupName} (${index + 1}/${lfState.groups.length})...`;
+      elements.lfProgressBar.style.width = `${Math.round((index / Math.max(lfState.groups.length, 1)) * 100)}%`;
+      lfAddLog(`→ ${group.groupName} (${group.awbs.length} AWB)`, 'info');
+
+      lfAddLog(`[LOGIC FIX] ${group.cpName} → target grup: '${group.groupName}'`, 'info');
+
+      if (!isDryRun) {
+        const result = await window.electronAPI.invoke('wa-send-logic-fix', {
+          groupName: group.groupName,
+          cpName: group.cpName,
+          awbs: group.awbs,
+          statuses: group.statuses,
+          message
+        });
+
+        if (result.ok) {
+          sent += 1;
+          lfAddLog(`[LOGIC FIX] Mengirim ke '${group.groupName}' (ID: ${result.groupId || 'N/A'}) — ${group.awbs.length} AWB`, 'success');
+        } else {
+          failed += 1;
+          lfAddLog(`[LOGIC FIX] WARNING: Grup '${group.groupName}' tidak ditemukan di WA. Skip. ${result.message || ''}`.trim(), 'warn');
+        }
+      } else {
+        sent += 1;
+        lfAddLog(`[DRY RUN] Simulasi kirim ke ${group.groupName}`, 'info');
+      }
+
+      elements.lfStatSent.textContent = String(sent);
+      elements.lfStatFailed.textContent = String(failed);
+      elements.lfStatPending.textContent = String(Math.max(lfState.groups.length - sent - failed, 0));
+
+      if (!isDryRun && index < lfState.groups.length - 1) {
+        const delay = 8000 + Math.floor(Math.random() * 7000);
+        lfAddLog(`⏱ Jeda ${(delay / 1000).toFixed(1)}s...`, 'info');
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+
+    lfState.running = false;
+    elements.lfProgressBar.style.width = '100%';
+    elements.lfCurrentStatus.textContent = `Selesai! ${sent} berhasil, ${failed} gagal.`;
+    lfAddLog(`🎉 SELESAI — ${sent} berhasil, ${failed} gagal dari ${lfState.groups.length} grup`, 'success');
+  }
+
+  function lfPause() {
+    lfState.running = false;
+    elements.lfCurrentStatus.textContent = 'Dijeda...';
+    lfAddLog('Pengiriman logic fix dijeda', 'warn');
+  }
+
+  function lfStop() {
+    lfState.running = false;
+    elements.lfCurrentStatus.textContent = 'Dihentikan.';
+    lfAddLog('Pengiriman logic fix dihentikan', 'warn');
   }
 
   function bindEvents() {
@@ -993,6 +1678,23 @@ function initWhatsAppBot(mountEl) {
     });
 
     elements.templateEditor.addEventListener('input', updateTemplate);
+    elements.lfTemplateMode.addEventListener('change', updateLogicFixTemplateSettings);
+    elements.lfTemplateReset.addEventListener('click', () => {
+      elements.lfTemplateEditor.value = getDefaultLogicFixTemplate();
+      updateLogicFixTemplateSettings();
+    });
+    elements.lfTemplateEditor.addEventListener('input', updateLogicFixTemplateSettings);
+    mountEl.querySelectorAll('[data-lf-template-var]').forEach((button) => {
+      button.addEventListener('click', () => {
+        const token = button.getAttribute('data-lf-template-var');
+        const editor = elements.lfTemplateEditor;
+        const start = editor.selectionStart ?? editor.value.length;
+        const end = editor.selectionEnd ?? editor.value.length;
+        editor.setRangeText(token, start, end, 'end');
+        editor.focus();
+        updateLogicFixTemplateSettings();
+      });
+    });
     elements.search.addEventListener('input', (event) => {
       state.searchTerm = event.target.value;
       refreshData();
@@ -1142,12 +1844,32 @@ function initWhatsAppBot(mountEl) {
     mountEl.querySelector('#wa-retry-max').addEventListener('change', updateOptions);
     mountEl.querySelector('#wa-skip-sent').addEventListener('change', updateOptions);
 
+    elements.lfBrowseBtn.addEventListener('click', () => elements.lfExcelFileInput.click());
+    elements.lfExcelPath.addEventListener('click', () => elements.lfExcelFileInput.click());
+    elements.lfExcelFileInput.addEventListener('change', async (event) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+      await lfHandleExcelFile(file);
+    });
+    elements.lfColAwb.addEventListener('change', lfProcessData);
+    elements.lfColCp.addEventListener('change', lfProcessData);
+    elements.lfColStatus.addEventListener('change', lfProcessData);
+    elements.lfConnectBtn.addEventListener('click', lfConnectWhatsApp);
+    elements.lfDisconnectBtn.addEventListener('click', lfDisconnect);
+    elements.lfRunBtn.addEventListener('click', lfRun);
+    elements.lfPauseBtn.addEventListener('click', lfPause);
+    elements.lfStopBtn.addEventListener('click', lfStop);
+
     window.electronAPI.onWaQr((img) => {
       showQr(img);
+      lfShowQr(img);
     });
 
     window.electronAPI.onWaConnected((info) => {
       setConnected(info);
+      lfShowConnected(info);
       if (state.pendingRun) {
         state.pendingRun = false;
         mountEl.querySelector('#wa-run').click();
@@ -1158,6 +1880,7 @@ function initWhatsAppBot(mountEl) {
       state.isConnected = false;
       setStatus('Menunggu Scan', '#38bdf8');
       elements.account.textContent = 'Akun belum terhubung';
+      lfShowDisconnected();
       addLog('Koneksi WhatsApp terputus', 'warn');
     });
 

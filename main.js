@@ -1721,6 +1721,81 @@ ipcMain.handle('wa-get-groups', async () => {
   }
 });
 
+function loadGroupIdsConfig() {
+  const configPath = path.join(process.cwd(), 'config', 'group-ids.json');
+  if (!fs.existsSync(configPath)) {
+    return {};
+  }
+
+  try {
+    const raw = fs.readFileSync(configPath, 'utf8');
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch (error) {
+    return {};
+  }
+}
+
+ipcMain.handle('wa-send-logic-fix', async (event, { groupName = '', cpName = '', awbs = [], statuses = {}, message = '' }) => {
+  if (!waClient) {
+    return { ok: false, message: 'WhatsApp tidak terhubung' };
+  }
+
+  try {
+    const targetGroupName = String(groupName || '').trim();
+    const groupIdsConfig = loadGroupIdsConfig();
+    const directGroupId = groupIdsConfig[targetGroupName];
+
+    let targetChat = null;
+
+    if (directGroupId) {
+      targetChat = {
+        id: { _serialized: String(directGroupId) },
+        name: targetGroupName
+      };
+    } else {
+      const chats = await waClient.getChats();
+      targetChat = chats.find((chat) => chat.isGroup && String(chat.name || '').trim() === targetGroupName);
+    }
+
+    if (!targetChat) {
+      return { ok: false, message: `Grup "${targetGroupName}" tidak ditemukan di WhatsApp` };
+    }
+
+    const customMessage = String(message || '').trim();
+    const textToSend = customMessage || (() => {
+      const lines = [];
+      lines.push(`📦 *Reminder ${targetGroupName}*`);
+      lines.push(`Total AWB: ${Array.isArray(awbs) ? awbs.length : 0}`);
+      lines.push('');
+
+      if (Object.keys(statuses || {}).length > 0) {
+        Object.entries(statuses || {}).forEach(([status, count]) => {
+          lines.push(`• ${status}: ${count} AWB`);
+        });
+        lines.push('');
+      }
+
+      lines.push('*Detail AWB:*');
+      (Array.isArray(awbs) ? awbs : []).slice(0, 50).forEach((awb, index) => {
+        lines.push(`${index + 1}. ${awb}`);
+      });
+
+      if (Array.isArray(awbs) && awbs.length > 50) {
+        lines.push(`... dan ${awbs.length - 50} AWB lainnya`);
+      }
+
+      return lines.join('\n');
+    })();
+
+    const groupId = targetChat.id?._serialized || targetChat.id;
+    await waClient.sendMessage(groupId, textToSend);
+    return { ok: true, groupId, groupName: targetGroupName, cpName: String(cpName || '').trim() };
+  } catch (error) {
+    return { ok: false, message: error.message || String(error) };
+  }
+});
+
 ipcMain.handle('wa-parse-excel', async (event, filePath) => {
   try {
     const ext = path.extname(filePath).toLowerCase();
