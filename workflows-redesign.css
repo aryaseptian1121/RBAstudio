@@ -1,0 +1,457 @@
+:root {
+  color-scheme: dark;
+}
+
+/* Workflow page redesign overrides */
+.ribbon-toolbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 48px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.ribbon-toolbar::-webkit-scrollbar { height: 0; }
+
+.ribbon-toolbar::after {
+  content: '';
+  position: absolute;
+  right: 0;
+  top: 0;
+  height: 100%;
+  width: 24px;
+  background: linear-gradient(to right, transparent, rgba(15,15,30,0.8));
+  pointer-events: none;
+}
+
+.rba-toolbar-group {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: 0 8px;
+  border-right: 1px solid rgba(255,255,255,0.08);
+  height: 100%;
+  justify-content: center;
+}
+
+.rba-toolbar-group:last-child {
+  border-right: none;
+}
+
+.rba-toolbar-group .toolbar-buttons-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 2px;
+}
+
+.canvas-zone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.rba-bottom-panels {
+  display: flex;
+  flex-direction: row;
+  height: 220px;
+  min-height: 180px;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+.rba-exec-log {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.rba-exec-log .log-content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 6px 10px;
+  font-size: 11px;
+  line-height: 1.6;
+  word-break: break-word;
+  white-space: normal;
+}
+
+.rba-bot-stats {
+  width: 200px;
+  flex-shrink: 0;
+  border-right: 1px solid rgba(255,255,255,0.06);
+}
+
+.rba-adb-device {
+  width: 240px;
+  flex-shrink: 0;
+}
+
+.bottom-panels .panel {
+  background: rgba(15, 18, 34, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 20px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.right-panel .dev-section {
+  display: none !important;
+}
+
+.properties-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  height: 36px;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+
+.rba-toggle-props-btn {
+  width: 14px;
+  min-width: 14px;
+  flex-shrink: 0;
+  background: rgba(255,255,255,0.03);
+  border: none;
+  border-left: 1px solid rgba(255,255,255,0.07);
+  border-right: 1px solid rgba(255,255,255,0.07);
+  color: rgba(255,255,255,0.25);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all .15s;
+  align-self: stretch;
+}
+
+.rba-toggle-props-btn:hover {
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.7);
+}
+
+.right-panel.rba-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  overflow: hidden;
+  border: none;
+}
+
+.right-panel {
+  transition: width .2s ease;
+  overflow: hidden;
+}
+
+.right-panel.rba-collapsed {
+  width: 0 !important;
+  min-width: 0 !important;
+  border-left: none;
+}
+
+
+/* Panel headers */
+.rba-panel-header {
+  height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 10px;
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: rgba(255,255,255,0.4);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+/* Bot stats rows */
+.rba-bot-stats .stat-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+}
+
+.rba-bot-stats .stat-row:last-child {
+  border-bottom: none;
+}
+
+.rba-bot-stats .stat-label {
+  color: rgba(255,255,255,0.45);
+}
+
+.rba-bot-stats .stat-value {
+  font-weight: 500;
+  color: rgba(255,255,255,0.85);
+}
+
+/* Sidebar activity items */
+.rba-activity-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  cursor: grab;
+  border-radius: 6px;
+  transition: background .12s;
+}
+
+.rba-activity-item:hover {
+  background: rgba(255,255,255,0.05);
+}
+
+.rba-activity-item .activity-name {
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+.rba-activity-item .activity-desc {
+  font-size: 10px;
+  opacity: 0.5;
+  line-height: 1.3;
+}
+
+/* Status bar items */
+.rba-status-item {
+  padding: 0 12px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  border-right: 1px solid rgba(255,255,255,0.06);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.rba-statusbar {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 24px;
+  min-height: 24px;
+  flex-shrink: 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.3);
+  padding: 0;
+  overflow: hidden;
+}
+
+.rba-status-item {
+  padding: 0 12px;
+  font-size: 10px;
+  color: rgba(255,255,255,0.4);
+  border-right: 1px solid rgba(255,255,255,0.06);
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.panel-stats .panel-body,
+.panel-adb .panel-body {
+  padding: 14px;
+}
+
+.panel-hdr {
+  background: transparent;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 14px 16px;
+}
+
+.log-hdr-title {
+  gap: 8px;
+}
+
+.log-hdr-actions button {
+  font-size: 10px;
+  padding: 4px 10px;
+}
+
+.prop-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 320px;
+  gap: 10px;
+  padding: 36px 18px;
+}
+
+.prop-empty-icon {
+  font-size: 36px;
+  line-height: 1;
+}
+
+.prop-empty-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.prop-empty-text {
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--dim2);
+}
+
+.tool-card {
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid transparent;
+  transition: background-color 180ms ease, border-color 180ms ease, transform 180ms ease;
+}
+
+.tool-card:hover {
+  background: rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.08);
+  transform: translateX(1px);
+}
+
+.tool-card .tc-ico {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  background: rgba(99, 102, 241, 0.14);
+  color: var(--text);
+}
+
+.tool-card .tc-lbl {
+  min-width: 0;
+}
+
+.tool-card .tc-lbl strong {
+  font-size: 12px;
+}
+
+.tool-card .tc-lbl span {
+  font-size: 10px;
+  color: var(--dim2);
+}
+
+.search-bar {
+  margin: 14px 12px 12px;
+}
+
+.search-bar input {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+#prop-panel {
+  min-height: 0;
+}
+
+#prop-editor {
+  min-height: 0;
+}
+
+#log-output {
+  min-height: 0;
+}
+
+/* Typography Consistency */
+
+.rba-group-label {
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.4;
+  margin-bottom: 3px;
+  line-height: 1;
+}
+
+.rba-toolbar-group button,
+.rba-toolbar-group .toolbar-btn {
+  font-size: 11px !important;
+  padding: 3px 7px !important;
+  white-space: nowrap;
+}
+
+.panel-header,
+.panel-title,
+.rba-panel-header {
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.45;
+}
+
+.node .node-lbl {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.node .node-type {
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.45;
+}
+
+.node .node-subtitle {
+  font-size: 9px !important;
+  font-weight: 400 !important;
+  opacity: 0.45;
+}
+
+.activity-item .activity-name,
+.rba-activity-item .activity-name {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.activity-item .activity-desc,
+.rba-activity-item .activity-desc {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  opacity: 0.5;
+}
+
+.section-toggle,
+[class*=\"section-label\"],
+[class*=\"section-header\"] {
+  font-size: 10px !important;
+  font-weight: 500 !important;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  opacity: 0.35;
+  padding: 10px 12px 4px !important;
+}
+
+.stat-item span:first-child {
+  font-size: 11px !important;
+  font-weight: 400 !important;
+  opacity: 0.5;
+}
+
+.stat-item .stat-val,
+.stat-item span:last-child {
+  font-size: 12px !important;
+  font-weight: 500 !important;
+}
+
+.rba-status-item {
+  font-size: 10px !important;
+  font-weight: 400 !important;
+  opacity: 0.4;
+  letter-spacing: 0.02em;
+}

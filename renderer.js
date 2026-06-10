@@ -587,27 +587,70 @@ function getActivityDef(type) {
 (function buildToolList() {
   const list = document.getElementById('tool-list');
   let html = '';
+  let sectionId = null;
   for (const a of ACTIVITIES) {
     if (a.sec) {
-      html += '<div class="sec">' + a.sec + '</div>';
+      if (sectionId) html += '</div></div>';
+      sectionId = a.sec.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      html += '<div class="tool-section" id="section-' + sectionId + '">';
+      html += '<button type="button" class="tool-sec-hdr" onclick="toggleToolSection(\'' + sectionId + '\')">';
+      html += '<span>' + a.sec + '</span><span class="tool-sec-chevron">▼</span></button>';
+      html += '<div class="tool-section-body">';
       continue;
+    }
+    if (!sectionId) {
+      sectionId = 'default';
+      html += '<div class="tool-section" id="section-' + sectionId + '">';
+      html += '<button type="button" class="tool-sec-hdr" onclick="toggleToolSection(\'' + sectionId + '\')">';
+      html += '<span>TOOLS</span><span class="tool-sec-chevron">▼</span></button>';
+      html += '<div class="tool-section-body">';
     }
     html += '<button class="tool-card" draggable="true" data-type="' + a.type + '" data-label="' + a.label + ' ' + a.desc + '">';
     html += '<div class="tc-ico" style="background:' + a.bg + ';color:' + a.color + '">' + a.icon + '</div>';
     html += '<div class="tc-lbl"><strong>' + a.label + '</strong><span>' + a.desc + '</span></div>';
     html += '</button>';
   }
+  if (sectionId) html += '</div></div>';
   list.innerHTML = html;
   list.querySelectorAll('.tool-card').forEach(btn => {
     const type = btn.dataset.type;
     btn.addEventListener('click', () => addNode(type));
     btn.addEventListener('dragstart', e => toolDragStart(e, type));
   });
+  animateActivityItems();
 })();
 
+function toggleToolSection(sectionId) {
+  const section = document.getElementById('section-' + sectionId);
+  if (!section) return;
+  section.classList.toggle('collapsed');
+}
+
 function filterTools(q) {
-  document.querySelectorAll('.tool-card').forEach(c => {
-    c.style.display = c.dataset.label.toLowerCase().includes(q.toLowerCase()) ? 'flex' : 'none';
+  const query = q.toLowerCase();
+  document.querySelectorAll('.tool-card').forEach((c, index) => {
+    const isMatch = c.dataset.label.toLowerCase().includes(query);
+    if (!query) {
+      c.classList.remove('filtered-out');
+      c.classList.remove('visible');
+      setTimeout(() => c.classList.add('visible'), index * 30);
+      return;
+    }
+    if (isMatch) {
+      c.classList.remove('filtered-out');
+      c.classList.add('visible');
+    } else {
+      c.classList.remove('visible');
+      c.classList.add('filtered-out');
+    }
+  });
+}
+
+function animateActivityItems() {
+  document.querySelectorAll('.tool-card').forEach((item, index) => {
+    item.classList.remove('filtered-out');
+    item.classList.remove('visible');
+    setTimeout(() => item.classList.add('visible'), index * 30);
   });
 }
 
@@ -638,11 +681,30 @@ let excelLoopPanel = null;
 let whatsappBotPanel = null;
 
 function switchView(id) {
-  document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+  const current = document.querySelector('.view.active');
+  const target = document.getElementById(id);
+  if (!target) return;
+
+  const navMap = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', settings:'nav-set' };
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', settings:'nav-set' };
-  if (map[id]) document.getElementById(map[id]).classList.add('active');
+  if (navMap[id]) document.getElementById(navMap[id]).classList.add('active');
+
+  const showTarget = () => {
+    target.classList.add('active', 'page-entering');
+    target.addEventListener('animationend', () => target.classList.remove('page-entering'), { once: true });
+  };
+
+  if (current && current !== target) {
+    current.classList.add('page-exiting');
+    current.addEventListener('animationend', () => {
+      current.classList.remove('active', 'page-exiting');
+      showTarget();
+    }, { once: true });
+  } else if (!current) {
+    showTarget();
+  } else if (current === target) {
+    target.classList.add('active');
+  }
 
   if (id === 'excel-loop' && !excelLoopPanel) {
     const mountEl = document.getElementById('excel-loop');
@@ -799,6 +861,7 @@ function addNode(type, x, y) {
     Object.assign(step, defaults);
   }
   project.steps.push(step);
+  step._isNew = true;
   // Auto-connect to previous node
   if (project.steps.length >= 2) {
     const prev = project.steps[project.steps.length - 2];
@@ -817,6 +880,11 @@ function addNode(type, x, y) {
 
 // ─── Node Selection & Properties ─────────────────────────────
 function selectNode(idx) {
+  var panel = document.querySelector('.right-panel');
+  var toggleBtn = document.getElementById('rba-toggle-props');
+  if (panel) panel.classList.remove('rba-collapsed');
+  if (toggleBtn) toggleBtn.textContent = '‹';
+  
   selectedIdx = idx;
   multiSelect = [idx];
   render();
@@ -934,8 +1002,17 @@ function showProp(s) {
     return;
   }
 
+  const editor = document.getElementById('prop-editor');
+  const isOpen = getComputedStyle(editor).display !== 'none';
   document.getElementById('prop-empty').style.display = 'none';
-  document.getElementById('prop-editor').style.display = 'block';
+  editor.style.display = 'block';
+  if (isOpen) {
+    editor.addEventListener('transitionend', e => {
+      if (e.propertyName !== 'opacity') return;
+      editor.classList.remove('updating');
+    }, { once: true });
+    requestAnimationFrame(() => editor.classList.add('updating'));
+  }
   const def = getActivityDef(s.type);
   document.getElementById('pe-ico-big').textContent = def.icon;
   document.getElementById('pe-ico-big').style.background = def.bg;
@@ -2106,7 +2183,7 @@ function render() {
   tl.style.display = 'none';
   svg.appendChild(tl);
 
-  const NODE_W = 200, NODE_H = 60;
+  const NODE_W = 220, NODE_H = 88;
 
   // Draw edges
   const edges = project.edges || [];
@@ -2224,22 +2301,33 @@ function render() {
     let nodeHTML = '';
     nodeHTML += '<div class="node-ico" style="background:' + def.bg + ';color:' + def.color + '">' + def.icon + '</div>';
     nodeHTML += '<div class="node-body">';
-    nodeHTML += '  <div class="node-lbl">' + s.name + '</div>';
+    nodeHTML += '  <div class="node-head">';
+    nodeHTML += '    <div class="node-lbl">' + s.name + '</div>';
+    nodeHTML += '    <div class="node-status-dot"></div>';
+    nodeHTML += '  </div>';
     nodeHTML += '  <div class="node-type">' + s.type + '</div>';
+    nodeHTML += '  <div class="node-subtitle">' + (def.desc || 'Activity step') + '</div>';
     if (s.status === 'running') {
-      nodeHTML += '<div style="font-size:9px;color:var(--yellow);margin-top:2px;">⏳ running...</div>';
+      nodeHTML += '<div style="font-size:10px;color:var(--yellow);margin-top:4px;">⏳ running...</div>';
     }
     if (s.status === 'success') {
-      nodeHTML += '<div style="font-size:9px;color:var(--green);margin-top:2px;">✓ done</div>';
+      nodeHTML += '<div style="font-size:10px;color:var(--green);margin-top:4px;">✓ done</div>';
     }
     if (s.status === 'error') {
-      nodeHTML += '<div style="font-size:9px;color:var(--red);margin-top:2px;">✗ error</div>';
+      nodeHTML += '<div style="font-size:10px;color:var(--red);margin-top:4px;">✗ error</div>';
     }
     nodeHTML += '</div>';
     nodeHTML += '<div class="node-port out" title="Drag to connect"></div>';
     nodeHTML += '<div class="node-port in"  title="Input port"></div>';
     nodeHTML += '<div class="node-status-bar"></div>';
     div.innerHTML = nodeHTML;
+    if (s._isNew) {
+      div.classList.add('node-entering');
+      div.addEventListener('animationend', () => {
+        div.classList.remove('node-entering');
+        delete s._isNew;
+      }, { once: true });
+    }
 
     // Attach event listeners to ports after HTML is set
     const outPort = div.querySelector('.node-port.out');
@@ -3232,6 +3320,10 @@ function updateDeviceSelector(devices) {
   const statusEl = document.getElementById('bot-status');
   if (statusEl) {
     statusEl.textContent = availableAdbDevices.length ? '✅ ' + availableAdbDevices.length + ' device(s)' : '⚠️ No ADB Device';
+  }
+  const statusAdb = document.getElementById('status-adb');
+  if (statusAdb) {
+    statusAdb.textContent = sel.value || 'No Device';
   }
 }
 ipcRenderer.on('device-list', (e, list) => {
@@ -4289,8 +4381,16 @@ function wait(ms) { return new Promise(r=>setTimeout(r, Math.max(0, ms))); }
 function addLog(msg, type='info') {
   const out = document.getElementById('log-output');
   const ts  = new Date().toLocaleTimeString();
-  out.innerHTML += '<span class="log-ts">[' + ts + ']</span> <span class="log-' + type + '">' + msg + '</span><br>';
+  const entry = document.createElement('div');
+  entry.classList.add('log-entry');
+  if (type === 'success') entry.classList.add('log-success');
+  if (type === 'error') entry.classList.add('log-error');
+  entry.innerHTML = '<span class="log-ts">[' + ts + ']</span> <span class="log-' + type + '">' + msg + '</span>';
+  out.appendChild(entry);
   out.scrollTop = out.scrollHeight;
+  entry.addEventListener('animationend', () => {
+    out.scrollTop = out.scrollHeight;
+  }, { once: true });
 }
 function logAutoDetection(msg, type='info') {
   addLog('[Auto] ' + msg, type);
@@ -4323,27 +4423,29 @@ function toggleTheme() {
   try {
     const root = document.documentElement;
     const newTheme = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
-    root.setAttribute('data-theme', newTheme);
-    if (newTheme === 'light') {
-      root.style.setProperty('--accent', '#74A8A4');
-      root.style.setProperty('--accent2', '#5f9c95');
-    } else {
-      root.style.setProperty('--accent', '#3b82f6');
-      root.style.setProperty('--accent2', '#6366f1');
-    }
-    prefs.theme = newTheme;
-    ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+    applyTheme(newTheme);
     logAutoDetection('Theme switched to ' + newTheme, 'info');
   } catch (err) {
     addLog('toggleTheme failed: ' + err.message, 'error');
   }
 }
 
+function applyTheme(theme) {
+  const root = document.documentElement;
+  root.setAttribute('data-theme', theme);
+  prefs.theme = theme;
+  ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+}
+
+function initTheme() {
+  applyTheme(prefs.theme || 'dark');
+}
+
 // ─── Settings ────────────────────────────────────────────────
 async function loadPrefs() {
   const s = await ipcRenderer.invoke('get-settings');
   Object.assign(prefs, s);
-  document.documentElement.setAttribute('data-theme', prefs.theme || 'dark');
+  initTheme();
   document.getElementById('pref-autosave').checked = prefs.autoSave;
   document.getElementById('pref-confirm').checked  = prefs.confirmDelete;
   document.getElementById('pref-snap').checked     = prefs.snap;
