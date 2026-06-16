@@ -12,6 +12,7 @@ window.electronAPI = {
   browseFile: (filters) => ipcRenderer.invoke('browse-file', filters),
   openChromeDebug: (port) => ipcRenderer.invoke('open-chrome-debug', { port }),
   testBrowserUrl: (cfg) => ipcRenderer.invoke('test-browser-url', cfg),
+  openFlowReturFolder: () => ipcRenderer.invoke('open-flow-retur-folder'),
   testFocusWindow: (cfg) => ipcRenderer.invoke('test-focus-window', cfg),
   scanWindows: () => ipcRenderer.invoke('scan-open-windows'),
   saveFlow: (data) => ipcRenderer.invoke('save-flow', data),

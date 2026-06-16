@@ -239,9 +239,55 @@ app.commandLine.appendSwitch('disable-background-timer-throttling'); // CHANGED
 app.commandLine.appendSwitch('disable-renderer-backgrounding'); // CHANGED
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows'); // CHANGED
 
-const { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager } = require('./flowEngine'); // CHANGED
+const { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager, adbExec, findTemplate, captureScreen, findTextOnScreen } = require('./flowEngine'); // CHANGED
 setAdbExecutor(pool.adb.bind(pool)); // CHANGED
 setExcelLoopBrowserManager(pool.browserManager?.bind(pool));
+
+// Flow Retur profiles persistence
+const FR_PROFILES_PATH = path.join(app.getPath('userData'), 'fr-profiles.json');
+function loadFrProfiles() { try { if (!fs.existsSync(FR_PROFILES_PATH)) return []; return JSON.parse(fs.readFileSync(FR_PROFILES_PATH,'utf8'))||[]; } catch(e){ return []; } }
+function saveFrProfiles(list) { try { fs.writeFileSync(FR_PROFILES_PATH, JSON.stringify(list,null,2)); } catch(e){} return list; }
+
+let currentFrEngine = null;
+
+ipcMain.handle('fr:load-profiles', async () => {
+  return { profiles: loadFrProfiles() };
+});
+
+ipcMain.handle('fr:save-profiles', async (event, { profiles }) => {
+  saveFrProfiles(profiles || []);
+  return { ok: true };
+});
+
+ipcMain.handle('fr:run', async (event, profile) => {
+  try {
+    if (currentFrEngine && currentFrEngine.isRunning) {
+      return { ok: false, message: 'Flow Retur sudah berjalan' };
+    }
+    const FlowReturEngine = require('./src/services/FlowReturEngine').FlowReturEngine;
+    currentFrEngine = new FlowReturEngine(profile, {
+      onLog: (level, msg) => { try { event.sender.send('fr:log', { level, msg }); } catch(e){} },
+      onStepStart: (key, label) => { try { event.sender.send('fr:step-start', { key, label }); } catch(e){} },
+      onStepDone: (key, ok) => { try { event.sender.send('fr:step-done', { key, ok }); } catch(e){} },
+      onLoopEnd: (info) => { try { event.sender.send('fr:loop-end', info); } catch(e){} }
+    });
+
+    // Run with dependencies wired from flowEngine
+    await currentFrEngine.run({ adbExec, findTemplate, findTextOnScreen, captureScreen });
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, message: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('fr:stop', async () => {
+  try {
+    if (currentFrEngine) currentFrEngine.stop();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, message: e.message };
+  }
+});
 
 let currentExcelLoopEngine = null;
 let excelLoopState = { running: false, paused: false, stopped: false };
@@ -1959,21 +2005,19 @@ ipcMain.handle('adb:get-screen-size', async (e, { device } = {}) => {
     }
 });
 
-ipcMain.handle('adb:screenshot', async (e, { device } = {}) => {
+async function captureAdbScreenshot(device) {
     const bin = pool.findAdb();
     if (!bin) return { success:false, error:'ADB tidak ditemukan' };
     const dFlag = device ? `-s "${device}"` : '';
-    
-    // Use async exec instead of execSync to avoid blocking main thread
     return new Promise(resolve => {
         const timeoutId = setTimeout(() => {
             resolve({ success:false, error:'Screencap timeout - device may be unresponsive' });
         }, 25000);
-        
-        exec(`"${bin}" ${dFlag} exec-out screencap -p`, { 
-            encoding:'buffer', 
+
+        exec(`"${bin}" ${dFlag} exec-out screencap -p`, {
+            encoding:'buffer',
             maxBuffer:100*1024*1024,
-            timeout: 20000  // Timeout before the callback timer fires
+            timeout: 20000
         }, (err, stdout) => {
             clearTimeout(timeoutId);
             if (err) {
@@ -1983,6 +2027,14 @@ ipcMain.handle('adb:screenshot', async (e, { device } = {}) => {
             }
         });
     });
+}
+
+ipcMain.handle('adb:screenshot', async (e, { device } = {}) => {
+    return captureAdbScreenshot(device);
+});
+
+ipcMain.handle('get-screen-preview', async (e, { device } = {}) => {
+    return captureAdbScreenshot(device);
 });
 
 // ADB WiFi connect
@@ -2034,6 +2086,20 @@ ipcMain.handle("get-output-path", async (event, filename) => {
         fs.mkdirSync(outputDir, { recursive: true });
     }
     return path.join(outputDir, filename || 'output.json');
+});
+
+ipcMain.handle('open-flow-retur-folder', async () => {
+    try {
+        const flowDir = path.join(app.getPath('userData'), 'flow-retur');
+        if (!fs.existsSync(flowDir)) {
+            fs.mkdirSync(flowDir, { recursive: true });
+        }
+        await shell.openPath(flowDir);
+        return { ok: true, path: flowDir };
+    } catch (error) {
+        console.error('[main] open-flow-retur-folder failed:', error);
+        return { ok: false, error: error?.message || String(error) };
+    }
 });
 
 // ================================

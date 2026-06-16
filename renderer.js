@@ -61,6 +61,12 @@ const initMacroRecorder = _macroRecorderModule.initMacroRecorder || (() => {});
 const _whatsappBotModule = safeRequire('./src/whatsappBot/whatsappBot.js') || {};
 const initWhatsAppBot = _whatsappBotModule.initWhatsAppBot || (() => {});
 
+// Flow Retur renderer module
+const _frModule = safeRequire('./flowRetur') || {};
+const initFlowRetur = _frModule.initFlowRetur || null;
+const frOpenStepPicker = _frModule.frOpenStepPicker || null;
+if (typeof window !== 'undefined') window.frOpenStepPicker = frOpenStepPicker;
+
 // Expose React to window for Excel Loop panel
 if (typeof React !== 'undefined') {
   window.React = React;
@@ -111,6 +117,17 @@ let isDrawingEdge = false, edgeFromIdx = null;
 let snapToGrid = false, miniMapOn = false;
 let multiSelect = [];  // array of selected indices
 let clipboard = [];
+
+// Region selector state for mobile tap properties
+let regionSelectorState = {
+  initialized: false,
+  imageSrc: '',
+  deviceId: '',
+  scale: 1,
+  isDragging: false,
+  dragStart: null,
+  region: { x: 0, y: 0, width: 0, height: 0 }
+};
 
 // Execution state
 let stopRequested = false;
@@ -679,13 +696,14 @@ function redoAction() {
 // ─── View Switching ───────────────────────────────────────────
 let excelLoopPanel = null;
 let whatsappBotPanel = null;
+let flowReturPanel = null;
 
 function switchView(id) {
   const current = document.querySelector('.view.active');
   const target = document.getElementById(id);
   if (!target) return;
 
-  const navMap = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', settings:'nav-set' };
+  const navMap = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', 'flow-retur':'nav-flow-retur', settings:'nav-set' };
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
   if (navMap[id]) document.getElementById(navMap[id]).classList.add('active');
 
@@ -784,6 +802,91 @@ ${errorStack}</pre>
       }
     }
   }
+
+  if (id === 'flow-retur' && !flowReturPanel) {
+    const mountEl = document.getElementById('flow-retur');
+    if (mountEl) {
+      if (typeof initFlowRetur === 'function') {
+        try { initFlowRetur(mountEl); } catch (e) { console.warn('initFlowRetur error', e); }
+      } else {
+        initFlowReturPanel(mountEl);
+      }
+      if (typeof frOpenStepPicker === 'function') window.frOpenStepPicker = frOpenStepPicker;
+      flowReturPanel = true;
+    }
+  }
+}
+
+function initFlowReturPanel(mountEl) {
+  flowReturPanel = true;
+  mountEl.innerHTML = `
+    <div class="dash-view" style="display:flex;flex-direction:column;min-height:0;">
+      <div class="dash-title">🔁 Flow Retur</div>
+      <div class="dash-sub">Buat dan kelola alur pengembalian secara terpusat, dengan akses cepat ke rule, dokumen, dan log aktivitas.</div>
+      <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:16px;margin-top:18px;">
+        <div class="setting-card">
+          <div class="setting-card-ttl">Flow Retur Overview</div>
+          <p style="margin:0;color:var(--text);line-height:1.6;">Gunakan halaman ini untuk menyimpan template alur retur, melihat status retur terakhir, dan menjalankan rutin pemrosesan return.</p>
+        </div>
+        <div class="setting-card">
+          <div class="setting-card-ttl">Actions</div>
+          <div style="display:flex;flex-direction:column;gap:10px;margin-top:10px;">
+            <button id="flow-retur-new" class="tb-btn" style="width:100%;">+ Create Return Flow</button>
+            <button id="flow-retur-refresh" class="tb-btn" style="width:100%;">🔄 Refresh Return Queue</button>
+            <button id="flow-retur-open" class="tb-btn" style="width:100%;">📂 Open Return Folder</button>
+          </div>
+        </div>
+      </div>
+      <div style="margin-top:20px;display:grid;grid-template-columns:1fr;gap:16px;">
+        <div class="setting-card">
+          <div class="setting-card-ttl">Latest Return Logs</div>
+          <div id="flow-retur-log" style="min-height:120px;color:var(--text);font-size:13px;line-height:1.6;white-space:pre-wrap;overflow:auto;padding:10px 0 0 0;"></div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  const btnNew = document.getElementById('flow-retur-new');
+  const btnRefresh = document.getElementById('flow-retur-refresh');
+  const btnOpen = document.getElementById('flow-retur-open');
+  const logEl = document.getElementById('flow-retur-log');
+
+  const appendFlowReturLog = (message) => {
+    if (!logEl) return;
+    const time = new Date().toLocaleTimeString();
+    logEl.textContent = `${time} - ${message}\n${logEl.textContent}`;
+  };
+
+  btnNew?.addEventListener('click', () => {
+    appendFlowReturLog('Create Return Flow clicked. Fitur belum tersedia.');
+    addLog('Flow Retur: Create action clicked.', 'info');
+  });
+  btnRefresh?.addEventListener('click', () => {
+    appendFlowReturLog('Refresh Return Queue clicked. Memeriksa status terbaru...');
+    addLog('Flow Retur: Refresh action clicked.', 'info');
+  });
+  btnOpen?.addEventListener('click', async () => {
+    appendFlowReturLog('Open Return Folder clicked. Mencoba membuka folder...');
+    if (window.electronAPI && typeof window.electronAPI.openFlowReturFolder === 'function') {
+      try {
+        const result = await window.electronAPI.openFlowReturFolder();
+        if (result?.ok) {
+          appendFlowReturLog(`Folder terbuka: ${result.path}`);
+          addLog('Flow Retur: Folder terbuka.', 'success');
+        } else {
+          appendFlowReturLog(`Gagal membuka folder: ${result?.error || 'Unknown error'}`);
+          addLog('Flow Retur: Gagal membuka folder.', 'error');
+        }
+      } catch (error) {
+        console.warn('Flow Retur open folder failed:', error);
+        appendFlowReturLog('Gagal membuka folder: ' + (error?.message || String(error)));
+        addLog('Flow Retur: Gagal membuka folder.', 'error');
+      }
+    } else {
+      appendFlowReturLog('Electron API tidak tersedia untuk membuka folder.');
+      addLog('Flow Retur: Electron API tidak tersedia.', 'warn');
+    }
+  });
 }
 
 // ─── Project Name ─────────────────────────────────────────────
@@ -1127,6 +1230,7 @@ function showProp(s) {
   if (document.getElementById('pe-mtap-threshold')) document.getElementById('pe-mtap-threshold').value = s.matchThreshold ?? 0.85;
   if (document.getElementById('pe-mtap-timeout')) document.getElementById('pe-mtap-timeout').value = s.waitTimeout ?? 30000;
   if (document.getElementById('pe-mtap-interval')) document.getElementById('pe-mtap-interval').value = s.retryInterval ?? 1000;
+  initRegionSelector(s);
   
   // Template image preview
   if (s.templateImageBase64) {
@@ -1261,6 +1365,252 @@ function toggleMobileTapFields(matchMode) {
   if (textDiv) textDiv.style.display = showText ? 'block' : 'none';
   if (thresholdDiv) thresholdDiv.style.display = showThreshold ? 'block' : 'none';
   if (waitDiv) waitDiv.style.display = showWait ? 'block' : 'none';
+}
+
+function initRegionSelector(step) {
+  const section = document.getElementById('regionSelectorSection');
+  const container = document.getElementById('regionCanvasContainer');
+  const hint = document.getElementById('regionHint');
+  const coordsText = document.getElementById('regionCoordsText');
+  const clearBtn = document.getElementById('btnClearRegion');
+  if (!section || !container || !hint || !coordsText || !clearBtn) return;
+
+  const isMobileTap = step && step.type === 'mobile-tap';
+  section.style.display = isMobileTap ? 'block' : 'none';
+  if (!isMobileTap) return;
+
+  if (!regionSelectorState.initialized) {
+    bindRegionSelectorHandlers();
+  }
+
+  regionSelectorState.region = {
+    x: step.referenceImageRegionX ?? 0,
+    y: step.referenceImageRegionY ?? 0,
+    width: step.referenceImageRegionW ?? 0,
+    height: step.referenceImageRegionH ?? 0
+  };
+  updateRegionInputs(regionSelectorState.region);
+
+  if (regionSelectorState.region.width > 0 && regionSelectorState.region.height > 0) {
+    coordsText.textContent = `X:${regionSelectorState.region.x} Y:${regionSelectorState.region.y} W:${regionSelectorState.region.width} H:${regionSelectorState.region.height}`;
+    clearBtn.style.display = 'inline-flex';
+  } else {
+    coordsText.textContent = '—';
+    clearBtn.style.display = 'none';
+  }
+
+  if (!regionSelectorState.imageSrc) {
+    container.style.display = 'none';
+    hint.style.display = 'block';
+    hint.textContent = 'Klik "Ambil Screenshot" untuk menandai area';
+  }
+}
+
+function bindRegionSelectorHandlers() {
+  const captureBtn = document.getElementById('btnCaptureScreen');
+  const clearBtn = document.getElementById('btnClearRegion');
+  const canvas = document.getElementById('regionCanvas');
+  const container = document.getElementById('regionCanvasContainer');
+  const overlay = document.getElementById('regionOverlay');
+  const hint = document.getElementById('regionHint');
+  if (!captureBtn || !clearBtn || !canvas || !container || !overlay || !hint) return;
+
+  regionSelectorState.initialized = true;
+
+  captureBtn.addEventListener('click', async () => {
+    if (selectedIdx === null) {
+      addLog('Pilih node terlebih dahulu sebelum mengambil screenshot.', 'warn');
+      return;
+    }
+    const step = project.steps[selectedIdx];
+    const deviceId = step.deviceId || getActiveAdbDevice();
+    if (!deviceId) {
+      addLog('Tidak ada device ADB aktif. Pilih device di selector atau isi Device ID.', 'warn');
+      return;
+    }
+    captureBtn.disabled = true;
+    hint.textContent = 'Mengambil screenshot...';
+
+    try {
+      const resp = await ipcRenderer.invoke('get-screen-preview', { device: deviceId });
+      if (!resp.success) {
+        addLog('Gagal mengambil preview layar: ' + resp.error, 'error');
+        hint.textContent = 'Klik "Ambil Screenshot" untuk menandai area';
+        return;
+      }
+      regionSelectorState.imageSrc = 'data:image/png;base64,' + resp.imageBase64;
+      regionSelectorState.deviceId = deviceId;
+      await renderRegionCanvas(regionSelectorState.imageSrc);
+      container.style.display = 'block';
+      hint.style.display = 'none';
+    } catch (err) {
+      addLog('Error mengambil preview layar: ' + (err?.message || err), 'error');
+      hint.textContent = 'Klik "Ambil Screenshot" untuk menandai area';
+    } finally {
+      captureBtn.disabled = false;
+    }
+  });
+
+  clearBtn.addEventListener('click', (event) => {
+    event.preventDefault();
+    clearRegionSelection();
+  });
+
+  canvas.addEventListener('mousedown', (event) => {
+    if (!regionSelectorState.imageSrc) return;
+    regionSelectorState.isDragging = true;
+    regionSelectorState.dragStart = getCanvasCoordinates(event, canvas);
+    overlay.style.display = 'block';
+  });
+
+  canvas.addEventListener('mousemove', (event) => {
+    if (!regionSelectorState.isDragging || !regionSelectorState.dragStart) return;
+    const current = getCanvasCoordinates(event, canvas);
+    const rect = normalizeCanvasRect(regionSelectorState.dragStart, current);
+    renderRegionOverlay(rect, overlay);
+  });
+
+  window.addEventListener('mouseup', (event) => {
+    if (!regionSelectorState.isDragging || !regionSelectorState.dragStart) return;
+    regionSelectorState.isDragging = false;
+    const end = getCanvasCoordinates(event, canvas);
+    const rect = normalizeCanvasRect(regionSelectorState.dragStart, end);
+    const region = convertCanvasRectToDevice(rect);
+    applyRegionSelection(region);
+    regionSelectorState.dragStart = null;
+  });
+}
+
+function getCanvasCoordinates(event, canvas) {
+  const rect = canvas.getBoundingClientRect();
+  const x = event.clientX - rect.left;
+  const y = event.clientY - rect.top;
+  return {
+    x: Math.max(0, Math.min(canvas.width, x)),
+    y: Math.max(0, Math.min(canvas.height, y))
+  };
+}
+
+function normalizeCanvasRect(start, end) {
+  return {
+    x: Math.min(start.x, end.x),
+    y: Math.min(start.y, end.y),
+    width: Math.max(1, Math.abs(end.x - start.x)),
+    height: Math.max(1, Math.abs(end.y - start.y))
+  };
+}
+
+function convertCanvasRectToDevice(rect) {
+  const scale = regionSelectorState.scale || 1;
+  return {
+    x: Math.round(rect.x / scale),
+    y: Math.round(rect.y / scale),
+    width: Math.round(rect.width / scale),
+    height: Math.round(rect.height / scale)
+  };
+}
+
+function renderRegionOverlay(rect, overlay) {
+  overlay.style.left = rect.x + 'px';
+  overlay.style.top = rect.y + 'px';
+  overlay.style.width = rect.width + 'px';
+  overlay.style.height = rect.height + 'px';
+  overlay.style.display = rect.width > 0 && rect.height > 0 ? 'block' : 'none';
+}
+
+function applyRegionSelection(region) {
+  if (!region || region.width <= 0 || region.height <= 0) return;
+  regionSelectorState.region = region;
+  updateRegionInputs(region);
+  saveProp('referenceImageRegionX', region.x);
+  saveProp('referenceImageRegionY', region.y);
+  saveProp('referenceImageRegionW', region.width);
+  saveProp('referenceImageRegionH', region.height);
+
+  const coordsText = document.getElementById('regionCoordsText');
+  if (coordsText) coordsText.textContent = `X:${region.x} Y:${region.y} W:${region.width} H:${region.height}`;
+
+  const clearBtn = document.getElementById('btnClearRegion');
+  if (clearBtn) clearBtn.style.display = 'inline-flex';
+  addLog('Area pencarian gambar berhasil disimpan.', 'success');
+}
+
+function updateRegionInputs(region) {
+  const x = document.getElementById('inputRegionX');
+  const y = document.getElementById('inputRegionY');
+  const w = document.getElementById('inputRegionW');
+  const h = document.getElementById('inputRegionH');
+  if (x) x.value = region.x ?? 0;
+  if (y) y.value = region.y ?? 0;
+  if (w) w.value = region.width ?? 0;
+  if (h) h.value = region.height ?? 0;
+}
+
+function clearRegionSelection() {
+  regionSelectorState.region = { x: 0, y: 0, width: 0, height: 0 };
+  updateRegionInputs(regionSelectorState.region);
+  saveProp('referenceImageRegionX', 0);
+  saveProp('referenceImageRegionY', 0);
+  saveProp('referenceImageRegionW', 0);
+  saveProp('referenceImageRegionH', 0);
+
+  const overlay = document.getElementById('regionOverlay');
+  const coordsText = document.getElementById('regionCoordsText');
+  const clearBtn = document.getElementById('btnClearRegion');
+  if (overlay) overlay.style.display = 'none';
+  if (coordsText) coordsText.textContent = '—';
+  if (clearBtn) clearBtn.style.display = 'none';
+  addLog('Area pencarian gambar telah dibersihkan.', 'info');
+}
+
+async function renderRegionCanvas(src) {
+  const canvas = document.getElementById('regionCanvas');
+  const container = document.getElementById('regionCanvasContainer');
+  const overlay = document.getElementById('regionOverlay');
+  const hint = document.getElementById('regionHint');
+  if (!canvas || !container || !overlay || !hint) return;
+
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const maxWidth = Math.max(320, container.clientWidth || 320);
+      const maxHeight = Math.max(220, container.clientHeight || 220);
+      const widthScale = maxWidth / img.naturalWidth;
+      const heightScale = maxHeight / img.naturalHeight;
+      const scale = Math.min(widthScale, heightScale, 1);
+      const displayWidth = Math.round(img.naturalWidth * scale);
+      const displayHeight = Math.round(img.naturalHeight * scale);
+
+      canvas.width = displayWidth;
+      canvas.height = displayHeight;
+      canvas.style.width = displayWidth + 'px';
+      canvas.style.height = displayHeight + 'px';
+      container.style.height = displayHeight + 'px';
+
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, displayWidth, displayHeight);
+      ctx.drawImage(img, 0, 0, displayWidth, displayHeight);
+
+      regionSelectorState.scale = scale;
+      if (regionSelectorState.region.width > 0 && regionSelectorState.region.height > 0) {
+        renderRegionOverlay({
+          x: Math.round(regionSelectorState.region.x * scale),
+          y: Math.round(regionSelectorState.region.y * scale),
+          width: Math.round(regionSelectorState.region.width * scale),
+          height: Math.round(regionSelectorState.region.height * scale)
+        }, overlay);
+      } else {
+        overlay.style.display = 'none';
+      }
+      resolve();
+    };
+    img.onerror = (err) => {
+      addLog('Gagal memuat screenshot di region selector.', 'error');
+      hint.textContent = 'Gagal memuat screenshot. Coba lagi.';
+      reject(err);
+    };
+    img.src = src;
+  });
 }
 
 function toggleWaitTextOffsetFields(action) {
@@ -1635,6 +1985,26 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
   const textBoxes = modal.querySelector('#sp-text-boxes');
   const debugOverlay = modal.querySelector('#sp-debug');
 
+  // when image loads, capture base64 and compute scale factors for picker
+  img.addEventListener('load', () => {
+    try {
+      _pickerScreenBase64 = (imageSrc || '').startsWith('data:') ? imageSrc.split(',')[1] : (imageSrc || '').replace(/^data:image\/.+;base64,/, '');
+    } catch (e) { _pickerScreenBase64 = null; }
+    _pickerOriginalWidth = img.naturalWidth || deviceSize.width;
+    _pickerOriginalHeight = img.naturalHeight || deviceSize.height;
+    const info = getImageRenderInfo();
+    _pickerScaleX = _pickerOriginalWidth / info.renderedWidth;
+    _pickerScaleY = _pickerOriginalHeight / info.renderedHeight;
+
+    // reset picker state
+    _pickerMode = 'coordinate';
+    _pickerResult = { x:0,y:0,w:0,h:0,base64:null };
+    _pickerDrag = { active:false,startX:0,startY:0,endX:0,endY:0 };
+
+    // hide crop preview
+    const cropBar = modal.querySelector('#cropPreviewBar'); if (cropBar) cropBar.style.display = 'none';
+  });
+
   let isDragging = false;
   let dragStart = null;
   let dragRect = null;
@@ -1825,180 +2195,192 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
     if (status) status.textContent = message;
   }
 
+  // Picker state (coordinate | crop | region)
+  let _pickerMode = 'coordinate';
+  let _pickerDrag = { active:false, startX:0, startY:0, endX:0, endY:0 };
+  let _pickerResult = { x:0, y:0, w:0, h:0, base64:null };
+  let _pickerScaleX = 1, _pickerScaleY = 1;
+  let _pickerOriginalWidth = 0, _pickerOriginalHeight = 0;
+  let _pickerScreenBase64 = null;
+
+  // --- Enhanced picker mouse handling (coordinate / crop / region) ---
+
+  // Helper to convert client coords -> device coords and CSS positions
+  function clientToDeviceAndCss(clientX, clientY) {
+    const info = getImageRenderInfo();
+    const cssX = clientX - info.rect.left - info.offsetX;
+    const cssY = clientY - info.rect.top - info.offsetY;
+    const clampedX = Math.max(0, Math.min(info.renderedWidth, cssX));
+    const clampedY = Math.max(0, Math.min(info.renderedHeight, cssY));
+    return {
+      devX: Math.round(clampedX * info.scaleX),
+      devY: Math.round(clampedY * info.scaleY),
+      cssX: clampedX,
+      cssY: clampedY,
+      info
+    };
+  }
+
   overlayLayer.addEventListener('mousemove', (event) => {
     updateCrosshair(event.clientX, event.clientY);
-    if (isDragging && dragStart) {
-      const coords = getDeviceCoords(event.clientX, event.clientY);
-      dragRect = {
-        x: Math.min(dragStart.x, coords.x),
-        y: Math.min(dragStart.y, coords.y),
-        width: Math.abs(coords.x - dragStart.x),
-        height: Math.abs(coords.y - dragStart.y)
-      };
-      updateSelectionBox(dragRect);
-      updateStatusText(`Region: X:${dragRect.x} Y:${dragRect.y} W:${dragRect.width} H:${dragRect.height}`);
+    const pos = clientToDeviceAndCss(event.clientX, event.clientY);
+
+    if (_pickerMode === 'coordinate') {
+      // live hover coords
+      updateStatusText(`Dipilih: X:${pos.devX} Y:${pos.devY}`);
+    }
+
+    if (_pickerDrag.active) {
+      _pickerDrag.endX = pos.cssX;
+      _pickerDrag.endY = pos.cssY;
+      // compute device rect for display
+      const x = Math.min(_pickerDrag.startX, _pickerDrag.endX);
+      const y = Math.min(_pickerDrag.startY, _pickerDrag.endY);
+      const w = Math.abs(_pickerDrag.endX - _pickerDrag.startX);
+      const h = Math.abs(_pickerDrag.endY - _pickerDrag.startY);
+      // show selection using existing selection element but convert back to css coords
+      const info = pos.info;
+      selection.style.display = 'block';
+      selection.style.left = (info.offsetX + x) + 'px';
+      selection.style.top = (info.offsetY + y) + 'px';
+      selection.style.width = (w) + 'px';
+      selection.style.height = (h) + 'px';
+      updateStatusText(`Area: X:${Math.round(x*info.scaleX)} Y:${Math.round(y*info.scaleY)} W:${Math.round(w*info.scaleX)} H:${Math.round(h*info.scaleY)}`);
     }
   });
 
   overlayLayer.addEventListener('mousedown', (event) => {
     if (mode === 'text') return;
-    const coords = getDeviceCoords(event.clientX, event.clientY);
-    if (mode === 'point') {
-      selectedPoint = coords;
-      updateStatusText(`Dipilih: X:${coords.x} Y:${coords.y}`);
-      saveScreenPickerResult({ mode:'point', x:coords.x, y:coords.y });
+    const p = clientToDeviceAndCss(event.clientX, event.clientY);
+    if (_pickerMode === 'coordinate') {
+      // set coordinate immediately
+      _pickerResult.x = p.devX;
+      _pickerResult.y = p.devY;
+      updateStatusText(`Dipilih: X:${p.devX} Y:${p.devY}`);
+      saveScreenPickerResult({ mode:'point', x:p.devX, y:p.devY });
       modal.remove();
       return;
     }
-    if (mode === 'element') {
-      // Enhanced element capture for mobile-tap
-      pickerSession.selectedPoint = coords;
-      pickerSession.isReady = false;
-      pickerSession.ocrText = '';
-      pickerSession.templateImage = null;
-      pickerSession.cropRegion = {
-        x: Math.max(0, coords.x - 50),
-        y: Math.max(0, coords.y - 50),
-        width: 100,
-        height: 100
-      };
-      updateStatusText(`Element dipilih: X:${coords.x} Y:${coords.y}. Tekan Konfirmasi untuk memproses.`);
-      updateConfirmButton();
-      // Don't close modal yet, will be handled by confirm
-      return;
-    }
-    if (mode === 'swipe') {
-      if (!swipeStart) {
-        swipeStart = coords;
-        updateStatusText(`Start dipilih: X:${coords.x} Y:${coords.y}. Pilih titik End.`);
-        updateStartEndMarkers();
-      } else {
-        swipeEnd = coords;
-        updateStatusText(`End dipilih: X:${coords.x} Y:${coords.y}. Klik Konfirmasi.`);
-        updateStartEndMarkers();
-      }
-      return;
-    }
-    if (mode === 'region' || mode === 'image') {
-      isDragging = true;
-      dragStart = coords;
-      dragRect = { x: coords.x, y: coords.y, width: 0, height: 0 };
-      updateSelectionBox(dragRect);
-      updateStatusText('Drag untuk memilih area.');
-    }
+
+    // start drag for crop/region
+    _pickerDrag.active = true;
+    _pickerDrag.startX = p.cssX;
+    _pickerDrag.startY = p.cssY;
+    _pickerDrag.endX = p.cssX;
+    _pickerDrag.endY = p.cssY;
+    selection.style.display = 'block';
   });
 
-  window.addEventListener('mouseup', (event) => {
-    if (!isDragging) return;
-    const coords = getDeviceCoords(event.clientX, event.clientY);
-    dragRect = {
-      x: Math.min(dragStart.x, coords.x),
-      y: Math.min(dragStart.y, coords.y),
-      width: Math.abs(coords.x - dragStart.x),
-      height: Math.abs(coords.y - dragStart.y)
-    };
-    isDragging = false;
-    updateSelectionBox(dragRect);
-    updateStatusText(`Area dipilih: X:${dragRect.x} Y:${dragRect.y} W:${dragRect.width} H:${dragRect.height}`);
+  window.addEventListener('mouseup', async (event) => {
+    if (!_pickerDrag.active) return;
+    _pickerDrag.active = false;
+    const startX = Math.min(_pickerDrag.startX, _pickerDrag.endX);
+    const startY = Math.min(_pickerDrag.startY, _pickerDrag.endY);
+    const w = Math.max(1, Math.abs(_pickerDrag.endX - _pickerDrag.startX));
+    const h = Math.max(1, Math.abs(_pickerDrag.endY - _pickerDrag.startY));
+
+    // convert to device coords
+    const info = getImageRenderInfo();
+    const rx = Math.round(startX * info.scaleX);
+    const ry = Math.round(startY * info.scaleY);
+    const rw = Math.round(w * info.scaleX);
+    const rh = Math.round(h * info.scaleY);
+
+    _pickerResult.x = rx; _pickerResult.y = ry; _pickerResult.w = rw; _pickerResult.h = rh;
+
+    // update preview for crop
+    if (_pickerMode === 'crop') {
+      try {
+        const base64 = await cropImageSection(imageSrc, { x:rx, y:ry, width:rw, height:rh }, deviceSize);
+        _pickerResult.base64 = base64;
+        // draw to preview canvas
+        const preview = modal.querySelector('#cropPreviewCanvas');
+        if (preview) {
+          const imgEl = new Image();
+          imgEl.onload = () => {
+            preview.width = imgEl.naturalWidth;
+            preview.height = imgEl.naturalHeight;
+            const pctx = preview.getContext('2d');
+            pctx.clearRect(0,0,preview.width, preview.height);
+            pctx.drawImage(imgEl, 0,0);
+            const label = modal.querySelector('#cropSizeLabel');
+            if (label) label.textContent = `${rw}×${rh}px`;
+          };
+          imgEl.src = 'data:image/png;base64,' + base64;
+        }
+        updateStatusText(`Crop ${rw}×${rh}px pada X:${rx} Y:${ry}`);
+      } catch (err) {
+        addLog('Gagal membuat preview crop: ' + (err?.message||err), 'error');
+      }
+    } else if (_pickerMode === 'region') {
+      updateStatusText(`Region ${rw}×${rh}px pada X:${rx} Y:${ry}`);
+    }
   });
 
   modal.querySelector('#sp-close').addEventListener('click', () => modal.remove());
   modal.querySelector('#sp-cancel').addEventListener('click', () => modal.remove());
+
   modal.querySelector('#sp-confirm').addEventListener('click', async () => {
-    if (mode === 'element') {
-      if (!pickerSession.selectedPoint) {
-        setStatusText('Pilih element terlebih dahulu lalu klik Konfirmasi.');
-        return;
-      }
-      if (pickerSession.isProcessing) {
-        setStatusText('⏳ Masih memproses, harap tunggu...');
-        return;
-      }
-
-      pickerSession.isProcessing = true;
-      updateConfirmButton();
-      setStatusText('Memproses element capture...');
-
-      const cropRegion = pickerSession.cropRegion || {
-        x: Math.max(0, pickerSession.selectedPoint.x - 50),
-        y: Math.max(0, pickerSession.selectedPoint.y - 50),
-        width: 100,
-        height: 100
-      };
-
-      let base64Image = null;
-      let ocrText = '';
-
-      try {
-        setStatusText('Memotong area yang dipilih...');
-        base64Image = await cropImageSection(imageSrc, cropRegion, deviceSize);
-        pickerSession.templateImage = base64Image;
-
-        setStatusText('Mendeteksi teks (opsional)...');
-        try {
-          ocrText = await runOcrSafe(base64Image, 5000);
-          pickerSession.ocrText = ocrText.trim();
-          setStatusText(`✅ Siap! Teks: "${pickerSession.ocrText || '(tidak ada teks)'}"`);
-        } catch (ocrErr) {
-          console.warn('[Screen Picker] OCR timed out or failed:', ocrErr?.message || ocrErr);
-          pickerSession.ocrText = '';
-          setStatusText('✅ Siap! (Pencocokan gambar tanpa OCR)');
-        }
-      } catch (err) {
-        console.error('[Screen Picker] Proses capture error:', err);
-        pickerSession.templateImage = null;
-        pickerSession.ocrText = '';
-        setStatusText('❌ Error saat memproses area terpilih: ' + (err?.message || err));
-      } finally {
-        pickerSession.isProcessing = false;
-        pickerSession.isReady = true;
-        updateConfirmButton();
-      }
-
-      window.__lastPickSession = {
-        coordinateX: pickerSession.selectedPoint.x,
-        coordinateY: pickerSession.selectedPoint.y,
-        templateImageBase64: pickerSession.templateImage,
-        targetText: pickerSession.ocrText,
-        isReady: pickerSession.isReady
-      };
-
-      saveScreenPickerResult({
-        mode: 'element',
-        x: pickerSession.selectedPoint.x,
-        y: pickerSession.selectedPoint.y,
-        width: cropRegion.width,
-        height: cropRegion.height,
-        imageBase64: pickerSession.templateImage,
-        ocrText: pickerSession.ocrText
-      });
-      render();
-      showProp(project.steps[selectedIdx]);
+    // Save according to active picker mode
+    const selectedNode = project.steps[selectedIdx];
+    if (!selectedNode) {
+      addLog('No node selected', 'warn');
       modal.remove();
       return;
     }
-    
-    if (mode === 'swipe' && swipeStart && swipeEnd) {
-      saveScreenPickerResult({ mode: 'swipe', startX: swipeStart.x, startY: swipeStart.y, endX: swipeEnd.x, endY: swipeEnd.y });
-      modal.remove();
-      return;
-    }
-    if ((mode === 'region' || mode === 'image') && dragRect && dragRect.width > 0 && dragRect.height > 0) {
-      if (mode === 'region') {
-        saveScreenPickerResult({ mode:'region', ...dragRect });
-        modal.remove();
+
+    if (_pickerMode === 'coordinate') {
+      selectedNode.coordinateX = _pickerResult.x;
+      selectedNode.coordinateY = _pickerResult.y;
+      selectedNode.x = _pickerResult.x;
+      selectedNode.y = _pickerResult.y;
+      saveProp('coordinateX', _pickerResult.x);
+      saveProp('coordinateY', _pickerResult.y);
+      setInputValue('pe-mtap-x', _pickerResult.x);
+      setInputValue('pe-mtap-y', _pickerResult.y);
+
+    } else if (_pickerMode === 'crop') {
+      if (!_pickerResult.base64) {
+        alert('Belum ada crop gambar. Drag area gambar terlebih dahulu.');
         return;
       }
-      const croppedBase64 = await cropImageSection(imageSrc, dragRect, deviceSize);
-      saveScreenPickerResult({ mode:'image', imageBase64: croppedBase64 });
-      modal.remove();
-      return;
+      const cx = _pickerResult.x + Math.round(_pickerResult.w/2);
+      const cy = _pickerResult.y + Math.round(_pickerResult.h/2);
+      selectedNode.referenceImage = _pickerResult.base64;
+      selectedNode.templateImageBase64 = _pickerResult.base64;
+      selectedNode.coordinateX = cx; selectedNode.coordinateY = cy;
+      selectedNode.x = cx; selectedNode.y = cy;
+      saveProp('referenceImage', _pickerResult.base64);
+      saveProp('templateImageBase64', _pickerResult.base64);
+      saveProp('coordinateX', cx);
+      saveProp('coordinateY', cy);
+      saveProp('matchMode', (selectedNode.matchMode && selectedNode.matchMode !== 'COORDINATE_ONLY') ? selectedNode.matchMode : 'IMAGE');
+      const preview = document.getElementById('pe-mtap-template-preview');
+      if (preview) { preview.src = 'data:image/png;base64,' + _pickerResult.base64; preview.style.display = 'block'; }
+
+    } else if (_pickerMode === 'region') {
+      if (!_pickerResult.w || !_pickerResult.h) {
+        alert('Belum ada area region. Drag area pencarian terlebih dahulu.');
+        return;
+      }
+      selectedNode.referenceImageRegionX = _pickerResult.x;
+      selectedNode.referenceImageRegionY = _pickerResult.y;
+      selectedNode.referenceImageRegionW = _pickerResult.w;
+      selectedNode.referenceImageRegionH = _pickerResult.h;
+      saveProp('referenceImageRegionX', _pickerResult.x);
+      saveProp('referenceImageRegionY', _pickerResult.y);
+      saveProp('referenceImageRegionW', _pickerResult.w);
+      saveProp('referenceImageRegionH', _pickerResult.h);
+      const xEl = document.getElementById('inputRegionX'); if (xEl) xEl.value = _pickerResult.x;
+      const yEl = document.getElementById('inputRegionY'); if (yEl) yEl.value = _pickerResult.y;
+      const wEl = document.getElementById('inputRegionW'); if (wEl) wEl.value = _pickerResult.w;
+      const hEl = document.getElementById('inputRegionH'); if (hEl) hEl.value = _pickerResult.h;
     }
-    if (mode === 'text') {
-      updateStatusText('Pilih bounding box teks atau tutup jika sudah selesai.');
-      return;
-    }
-    updateStatusText('Tidak ada pilihan yang valid.');
+
+    render(); showProp(project.steps[selectedIdx]);
+    // reset picker
+    _pickerMode = 'coordinate'; _pickerResult = { x:0,y:0,w:0,h:0,base64:null }; _pickerDrag = { active:false,startX:0,startY:0,endX:0,endY:0 };
+    modal.remove();
   });
 
   async function runTextDetection() {

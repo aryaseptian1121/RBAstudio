@@ -375,6 +375,64 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 }
 .prop-sep{height:1px;background:var(--border2);margin:14px 0;}
 .prop-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+.region-preview-wrap {
+  width: 100%;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.region-preview-hint {
+  color: var(--text-muted, #666);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+}
+
+.region-canvas-container {
+  width: 100%;
+}
+
+#regionCanvas {
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.region-coord-label {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+  margin-right: 4px;
+}
+
+#regionCoordsText {
+  font-size: 11px;
+  color: var(--accent-color, #4f8ef7);
+  font-family: monospace;
+}
+
+.region-actions .btn-secondary {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  color: var(--text-primary, #eee);
+  transition: background 0.15s;
+}
+
+.region-actions .btn-secondary:hover {
+  background: var(--bg-hover, #252545);
+}
 .prop-ico-big{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
 .prop-empty{color:var(--dim);text-align:center;padding:48px 16px;font-size:12px;line-height:1.7;}
 .btn-full{width:100%;padding:9px;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;transition:.15s;margin-bottom:6px;}
@@ -507,6 +565,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 ::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
 </style>
 <link rel="stylesheet" href="assets/rba-ui.css">
+<link rel="stylesheet" href="assets/rba-flowretur.css">
 <link rel="stylesheet" href="workflows-redesign.css">
 </head>
 <body>
@@ -537,6 +596,9 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     </div>
     <div class="nav-ico" id="nav-whatsapp-bot" onclick="switchView('whatsapp-bot')" title="">
       📲<span class="nav-ico-label">WhatsApp Bot</span>
+    </div>
+    <div class="nav-ico" id="nav-flow-retur" onclick="switchView('flow-retur')" title="">
+      🔁<span class="nav-ico-label">Flow Retur</span>
     </div>
     <div class="nav-ico" id="nav-set" onclick="switchView('settings')" title="">
       ⚙️<span class="nav-ico-label">Settings</span>
@@ -983,6 +1045,47 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                 
                 <!-- Enhanced Pick From Screen button -->
                 <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick Element (Image + Coords)</button>
+
+                <!-- ── Region Selector ── -->
+                <div class="prop-section" id="regionSelectorSection">
+                  <div class="prop-label">Area Pencarian Gambar</div>
+
+                  <div class="region-preview-wrap">
+                    <div class="region-preview-hint" id="regionHint">
+                      Klik "Ambil Screenshot" untuk menandai area
+                    </div>
+
+                    <div class="region-canvas-container" id="regionCanvasContainer" style="display:none; position:relative;">
+                      <canvas id="regionCanvas" style="display:block; cursor:crosshair; max-width:100%;"></canvas>
+                      <div id="regionOverlay" style="
+                        position:absolute;
+                        border: 2px solid #4f8ef7;
+                        background: rgba(79,142,247,0.15);
+                        pointer-events:none;
+                        display:none;
+                      "></div>
+                    </div>
+                  </div>
+
+                  <div class="region-actions" style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn-secondary" id="btnCaptureScreen" type="button">
+                      📷 Ambil Screenshot
+                    </button>
+                    <button class="btn-secondary" id="btnClearRegion" type="button" style="display:none;">
+                      ✕ Hapus Area
+                    </button>
+                  </div>
+
+                  <div class="region-coords" id="regionCoords" style="display:none; margin-top:6px;">
+                    <span class="region-coord-label">Area:</span>
+                    <span id="regionCoordsText">—</span>
+                  </div>
+
+                  <input type="hidden" id="inputRegionX" data-node-prop="referenceImageRegionX" value="0">
+                  <input type="hidden" id="inputRegionY" data-node-prop="referenceImageRegionY" value="0">
+                  <input type="hidden" id="inputRegionW" data-node-prop="referenceImageRegionW" value="0">
+                  <input type="hidden" id="inputRegionH" data-node-prop="referenceImageRegionH" value="0">
+                </div>
                 
                 <!-- Template Image Preview (for IMAGE and IMAGE_OR_TEXT modes) -->
                 <div id="pg-mtap-template" style="display:none; margin-top:8px;">
@@ -1435,6 +1538,107 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 
     <!-- WHATSAPP BOT VIEW -->
     <div class="view" id="whatsapp-bot"></div>
+
+    <!-- FLOW RETUR VIEW -->
+    <div class="view" id="flow-retur">
+      <div class="fr-section" style="padding:18px;display:flex;gap:14px;flex-direction:column;flex:1;min-height:0;overflow:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div>
+            <div class="fr-section-title">🔁 Flow Retur</div>
+            <div style="color:var(--dim);font-size:13px;margin-top:6px;">Automasi alur retur dengan konfigurasi per-device dan step-by-step.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="fr-profile-select" class="prop-input prop-select" style="min-width:220px;"></select>
+            <button id="fr-btn-add-profile" class="hdr-btn">+ Profile</button>
+            <button id="fr-btn-edit-profile" class="hdr-btn">Edit</button>
+            <button id="fr-btn-delete-profile" class="hdr-btn">Hapus</button>
+          </div>
+        </div>
+
+        <div id="fr-device-info" style="
+  margin-bottom:12px;
+  padding:10px 14px;
+  background:var(--bg-secondary,#1a1a2e);
+  border-radius:8px;
+  border:1px solid var(--border-color,#333);
+  font-size:13px;
+  transition: all 0.3s ease;
+">
+  <span class="fr-device-badge fr-device-disconnected">
+    ⚠️ Mendeteksi device...
+  </span>
+</div>
+        <div style="display:flex;gap:12px;">
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="font-weight:700;color:var(--text);">Steps</div>
+              <div id="fr-steps-status" class="fr-badge fr-badge-warn">Belum dikonfigurasi</div>
+            </div>
+            <div id="fr-steps-grid" class="fr-steps-grid"></div>
+
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <button id="fr-btn-run" class="tb-btn tb-run">▶ Jalankan</button>
+              <button id="fr-btn-stop" class="tb-btn tb-stop" style="display:none;">■ Hentikan</button>
+              <button id="fr-btn-clear-log" class="tb-btn">🧹 Bersihkan Log</button>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:12px;color:var(--dim);">Timeout (s)</label>
+              <input id="fr-timeout" class="prop-input" style="width:80px;" value="30">
+
+              <label style="font-size:12px;color:var(--dim);">Extra wait (s)</label>
+              <input id="fr-extra-wait" class="prop-input" style="width:80px;" value="10">
+
+              <label style="font-size:12px;color:var(--dim);">Delay tiap step (ms)</label>
+              <input id="fr-step-delay" class="prop-input" style="width:100px;" value="500">
+            </div>
+
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="text" checked> Loop while text exists
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="image"> Loop while image exists
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="count"> Loop N times
+                </label>
+                <input id="fr-loop-count-value" class="prop-input" style="width:80px;" value="10">
+                <input id="fr-loop-text-value" class="prop-input" style="min-width:160px;" placeholder="Teks kondisi loop">
+              </div>
+            </div>
+          </div>
+
+          <div style="width:340px;display:flex;flex-direction:column;gap:12px;">
+            <div class="fr-section-title">Preview & Log</div>
+            <div style="background:var(--bg2);border:1px solid var(--border);padding:8px;border-radius:8px;min-height:160px;display:flex;flex-direction:column;">
+              <div style="font-size:12px;color:var(--dim);margin-bottom:8px;">Live Preview (saat klik pick step)</div>
+              <div id="fr-preview" style="flex:1;background:#000;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#777;">Belum ada preview</div>
+            </div>
+
+            <div style="background:var(--bg2);border:1px solid var(--border);padding:8px;border-radius:8px;min-height:220px;display:flex;flex-direction:column;">
+              <div style="font-size:12px;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                <div>Log</div>
+                <div style="font-size:11px;color:var(--dim);">Realtime</div>
+              </div>
+              <div id="fr-log" style="flex:1;overflow:auto;padding:6px;background:transparent;border-radius:6px;font-size:12px;color:var(--text);"></div>
+            </div>
+
+            <div style="border-top:1px dashed var(--border);padding-top:8px;display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:12px;color:var(--dim);">Signature offsets</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="fr-sig-sx" class="prop-input" style="width:80px;" value="-100">
+                <input id="fr-sig-sy" class="prop-input" style="width:80px;" value="0">
+                <input id="fr-sig-ex" class="prop-input" style="width:80px;" value="100">
+                <input id="fr-sig-ey" class="prop-input" style="width:80px;" value="30">
+                <input id="fr-sig-dur" class="prop-input" style="width:100px;" value="800">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
 
     <!-- RECORDER VIEW -->
     <div class="view" id="recorder">
