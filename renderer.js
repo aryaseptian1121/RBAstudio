@@ -67,6 +67,9 @@ const initFlowRetur = _frModule.initFlowRetur || null;
 const frOpenStepPicker = _frModule.frOpenStepPicker || null;
 if (typeof window !== 'undefined') window.frOpenStepPicker = frOpenStepPicker;
 
+const quickViewLoader = safeRequire('./src/ui/quick-view-xml-loader.js') || {};
+const initQuickViewXml = quickViewLoader.initQuickViewXml || (() => {});
+
 // Expose React to window for Excel Loop panel
 if (typeof React !== 'undefined') {
   window.React = React;
@@ -1221,15 +1224,22 @@ function showProp(s) {
 
   // Mobile Tap enhanced fields
   if (document.getElementById('pe-mtap-match-mode')) {
-    document.getElementById('pe-mtap-match-mode').value = s.matchMode ?? 'COORDINATE_ONLY';
-    toggleMobileTapFields(s.matchMode ?? 'COORDINATE_ONLY');
+    const normalizedMode = normalizeMatchMode(s.matchMode);
+    document.getElementById('pe-mtap-match-mode').value = normalizedMode;
+    toggleMobileTapFields(normalizedMode);
   }
   if (document.getElementById('pe-mtap-x')) document.getElementById('pe-mtap-x').value = s.coordinateX ?? s.mx ?? 0;
   if (document.getElementById('pe-mtap-y')) document.getElementById('pe-mtap-y').value = s.coordinateY ?? s.my ?? 0;
+  if (document.getElementById('pe-mtap-resource-id')) document.getElementById('pe-mtap-resource-id').value = s.resourceId ?? '';
+  if (document.getElementById('pe-mtap-text-to-find')) document.getElementById('pe-mtap-text-to-find').value = s.textToFind ?? '';
+  if (document.getElementById('pe-mtap-content-desc')) document.getElementById('pe-mtap-content-desc').value = s.contentDesc ?? '';
+  if (document.getElementById('pe-mtap-xpath')) document.getElementById('pe-mtap-xpath').value = s.xpath ?? '';
   if (document.getElementById('pe-mtap-target-text')) document.getElementById('pe-mtap-target-text').value = s.targetText ?? '';
   if (document.getElementById('pe-mtap-threshold')) document.getElementById('pe-mtap-threshold').value = s.matchThreshold ?? 0.85;
   if (document.getElementById('pe-mtap-timeout')) document.getElementById('pe-mtap-timeout').value = s.waitTimeout ?? 30000;
   if (document.getElementById('pe-mtap-interval')) document.getElementById('pe-mtap-interval').value = s.retryInterval ?? 1000;
+  if (document.getElementById('pe-mtap-xml-timeout')) document.getElementById('pe-mtap-xml-timeout').value = s.timeoutMs ?? 30000;
+  if (document.getElementById('pe-mtap-retry-not-found')) document.getElementById('pe-mtap-retry-not-found').checked = s.retryOnNotFound !== false;
   initRegionSelector(s);
   
   // Template image preview
@@ -1344,27 +1354,44 @@ function saveProp(key, val) {
   }
 }
 
+function normalizeMatchMode(value) {
+  const mode = String(value || '').trim().toLowerCase();
+  if (!mode || mode === 'coordinate_only' || mode === 'coordinate') return 'coordinate';
+  if (mode === 'xml_selector' || mode === 'xml selector') return 'xml_selector';
+  if (mode === 'image_or_text' || mode === 'image or text') return 'image_or_text';
+  if (mode === 'image') return 'image';
+  if (mode === 'text') return 'text';
+  return 'coordinate';
+}
+
 function toggleTapOffsetRange(enabled) {
   const el = document.getElementById('pg-mtap-offset');
   if (el) el.style.display = enabled ? 'block' : 'none';
 }
 
 function toggleMobileTapFields(matchMode) {
+  const normalizedMode = normalizeMatchMode(matchMode);
   const templateDiv = document.getElementById('pg-mtap-template');
   const textDiv = document.getElementById('pg-mtap-text');
   const thresholdDiv = document.getElementById('pg-mtap-threshold');
   const waitDiv = document.getElementById('pg-mtap-wait');
+  const xmlSelectorDiv = document.getElementById('pg-mtap-xml-selector');
+  const coordsDiv = document.getElementById('pg-mtap-coords');
   
   // Show/hide fields based on match mode
-  const showTemplate = matchMode === 'IMAGE' || matchMode === 'IMAGE_OR_TEXT';
-  const showText = matchMode === 'TEXT' || matchMode === 'IMAGE_OR_TEXT';
-  const showThreshold = matchMode === 'IMAGE' || matchMode === 'IMAGE_OR_TEXT';
-  const showWait = matchMode === 'IMAGE' || matchMode === 'TEXT' || matchMode === 'IMAGE_OR_TEXT';
+  const showTemplate = normalizedMode === 'image' || normalizedMode === 'image_or_text';
+  const showText = normalizedMode === 'text' || normalizedMode === 'image_or_text';
+  const showThreshold = normalizedMode === 'image' || normalizedMode === 'image_or_text';
+  const showWait = normalizedMode === 'image' || normalizedMode === 'text' || normalizedMode === 'image_or_text';
+  const showXmlSelector = normalizedMode === 'xml_selector';
+  const showCoords = normalizedMode !== 'xml_selector';
   
   if (templateDiv) templateDiv.style.display = showTemplate ? 'block' : 'none';
   if (textDiv) textDiv.style.display = showText ? 'block' : 'none';
   if (thresholdDiv) thresholdDiv.style.display = showThreshold ? 'block' : 'none';
   if (waitDiv) waitDiv.style.display = showWait ? 'block' : 'none';
+  if (xmlSelectorDiv) xmlSelectorDiv.style.display = showXmlSelector ? 'block' : 'none';
+  if (coordsDiv) coordsDiv.style.display = showCoords ? 'block' : 'none';
 }
 
 function initRegionSelector(step) {
@@ -1852,7 +1879,7 @@ function saveScreenPickerResult(result) {
     }
     
     // Set default match mode and other properties
-    saveProp('matchMode', 'IMAGE_OR_TEXT');
+    saveProp('matchMode', 'image_or_text');
     saveProp('matchThreshold', 0.85);
     saveProp('waitTimeout', 30000);
     saveProp('retryInterval', 1000);
@@ -1898,6 +1925,27 @@ function saveScreenPickerResult(result) {
     showProp(step);
     return;
   }
+}
+
+function handleQuickViewSelectElement(event) {
+  const payload = event?.detail || {};
+  if (selectedIdx === null) return;
+  const step = project.steps[selectedIdx];
+  if (!step || step.type !== 'mobile-tap') return;
+
+  saveProp('matchMode', 'xml_selector');
+  saveProp('resourceId', payload.resourceId || '');
+  saveProp('textToFind', payload.textToFind || '');
+  saveProp('contentDesc', payload.contentDesc || '');
+  saveProp('xpath', payload.xpath || '');
+
+  if (payload.resourceId || payload.textToFind || payload.contentDesc || payload.xpath) {
+    saveProp('timeoutMs', step.timeoutMs ?? 30000);
+    saveProp('retryOnNotFound', step.retryOnNotFound !== false);
+  }
+
+  render();
+  showProp(step);
 }
 
 function pickScreenSwipe() {
@@ -2354,7 +2402,7 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
       saveProp('templateImageBase64', _pickerResult.base64);
       saveProp('coordinateX', cx);
       saveProp('coordinateY', cy);
-      saveProp('matchMode', (selectedNode.matchMode && selectedNode.matchMode !== 'COORDINATE_ONLY') ? selectedNode.matchMode : 'IMAGE');
+      saveProp('matchMode', (selectedNode.matchMode && selectedNode.matchMode !== 'coordinate') ? selectedNode.matchMode : 'image');
       const preview = document.getElementById('pe-mtap-template-preview');
       if (preview) { preview.src = 'data:image/png;base64,' + _pickerResult.base64; preview.style.display = 'block'; }
 
@@ -3736,6 +3784,73 @@ function resolveTapCoordinates(step) {
   return { x, y };
 }
 
+function parseBounds(bounds) {
+  const match = String(bounds || '').match(/\[\s*(\d+)\s*,\s*(\d+)\s*\]\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/);
+  if (!match) return null;
+  return {
+    x1: parseInt(match[1], 10),
+    y1: parseInt(match[2], 10),
+    x2: parseInt(match[3], 10),
+    y2: parseInt(match[4], 10)
+  };
+}
+
+function buildXmlNodePath(node) {
+  const segments = [];
+  let current = node;
+  while (current && current.nodeName === 'node') {
+    const parent = current.parentElement;
+    if (!parent) break;
+    const siblings = Array.from(parent.children).filter((child) => child.nodeName === 'node');
+    const index = siblings.indexOf(current);
+    segments.unshift('node[' + (index + 1) + ']');
+    current = parent;
+  }
+  return segments.join('/');
+}
+
+function findXmlMatchElement(xmlString, selector) {
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(xmlString, 'application/xml');
+  if (doc.querySelector('parsererror')) {
+    throw new Error('Invalid UI hierarchy XML');
+  }
+
+  const allNodes = Array.from(doc.querySelectorAll('node'));
+
+  const normalize = (value) => String(value || '').trim();
+  const resourceId = normalize(selector.resourceId);
+  const textToFind = normalize(selector.textToFind);
+  const contentDesc = normalize(selector.contentDesc);
+  const xpath = normalize(selector.xpath);
+
+  if (resourceId) {
+    const matches = allNodes.filter((node) => normalize(node.getAttribute('resource-id')) === resourceId);
+    if (matches.length > 0) return { node: matches[matches.length - 1], strategy: 'resourceId', value: resourceId };
+  }
+
+  if (textToFind) {
+    let exact = allNodes.filter((node) => normalize(node.getAttribute('text')).toLowerCase() === textToFind.toLowerCase());
+    if (exact.length > 0) return { node: exact[exact.length - 1], strategy: 'text_exact', value: textToFind };
+    let partial = allNodes.filter((node) => normalize(node.getAttribute('text')).toLowerCase().includes(textToFind.toLowerCase()));
+    if (partial.length > 0) return { node: partial[partial.length - 1], strategy: 'text_partial', value: textToFind };
+  }
+
+  if (contentDesc) {
+    let exact = allNodes.filter((node) => normalize(node.getAttribute('content-desc')).toLowerCase() === contentDesc.toLowerCase());
+    if (exact.length > 0) return { node: exact[exact.length - 1], strategy: 'contentDesc_exact', value: contentDesc };
+    let partial = allNodes.filter((node) => normalize(node.getAttribute('content-desc')).toLowerCase().includes(contentDesc.toLowerCase()));
+    if (partial.length > 0) return { node: partial[partial.length - 1], strategy: 'contentDesc_partial', value: contentDesc };
+  }
+
+  if (xpath) {
+    const matches = allNodes.filter((node) => buildXmlNodePath(node) === xpath);
+    if (matches.length > 0) return { node: matches[matches.length - 1], strategy: 'xpath', value: xpath };
+  }
+
+  return null;
+}
+
 function startAdbAutoRefresh() {
   setInterval(() => {
     refreshDevices(false);
@@ -3923,10 +4038,77 @@ async function runWorkflow() {
         }
 
         case 'mobile-tap': {
-          const { x, y } = resolveTapCoordinates(s);
+          const mode = normalizeMatchMode(s.matchMode);
           if (!stepDevice) throw new Error('Tidak ada device ADB terpilih');
+
+          if (mode === 'xml_selector') {
+            const resourceId = String(s.resourceId || '').trim();
+            const textToFind = String(s.textToFind || '').trim();
+            const contentDesc = String(s.contentDesc || '').trim();
+            const xpath = String(s.xpath || '').trim();
+            const timeoutMs = parseInt(s.timeoutMs, 10) || 30000;
+            const retryOnNotFound = s.retryOnNotFound !== false;
+            const selector = { resourceId, textToFind, contentDesc, xpath };
+            const selectorSummary = `resourceId=${resourceId||'<empty>'}, textToFind=${textToFind||'<empty>'}, contentDesc=${contentDesc||'<empty>'}, xpath=${xpath||'<empty>'}`;
+
+            if (!resourceId && !textToFind && !contentDesc && !xpath) {
+              throw new Error('XML Selector requires resourceId, textToFind, contentDesc, or xpath');
+            }
+
+            const startTime = Date.now();
+            const maxAttempts = retryOnNotFound ? 2 : 1;
+            let attempt = 0;
+            let found = null;
+            let lastError = null;
+
+            while (attempt < maxAttempts && Date.now() - startTime < timeoutMs) {
+              attempt += 1;
+              addLog('Step '+(i+1)+': 📱 XML selector attempt #'+attempt+' ('+selectorSummary+')', 'info');
+              try {
+                const dump = await ipcRenderer.invoke('ui:dumpHierarchy', stepDevice);
+                if (!dump.success) {
+                  throw new Error(dump.error || 'Gagal mengambil UI hierarchy');
+                }
+
+                found = findXmlMatchElement(dump.xml || '', selector);
+                if (found && found.node) {
+                  const bounds = parseBounds(found.node.getAttribute('bounds'));
+                  if (!bounds) {
+                    throw new Error('Node ditemukan tapi bounds invalid');
+                  }
+                  const tapX = Math.round((bounds.x1 + bounds.x2) / 2);
+                  const tapY = Math.round((bounds.y1 + bounds.y2) / 2);
+                  addLog('Step '+(i+1)+': 📱 Found element via '+found.strategy+': '+found.value+' -> tapping at ('+tapX+','+tapY+')', 'info');
+                  const r = await runAdb(stepDevice, 'shell input tap '+tapX+' '+tapY);
+                  if (!r.success) throw new Error('Tap gagal: '+r.error);
+                  addLog('  ✓ Tap OK', 'success');
+                  found = true;
+                  break;
+                }
+
+                lastError = new Error('No matching UI node found for selector');
+                addLog('  ⚠️ XML selector did not match any node on attempt #'+attempt, 'warn');
+              } catch (err) {
+                lastError = err;
+                addLog('  ⚠️ XML selector error: '+err.message, 'warn');
+              }
+
+              if (!retryOnNotFound || attempt >= maxAttempts || Date.now() - startTime >= timeoutMs) {
+                break;
+              }
+              await wait(1000);
+            }
+
+            if (found !== true) {
+              const elapsed = Date.now() - startTime;
+              throw new Error(`XML selector failed after ${elapsed}ms (${selectorSummary}): ${lastError?.message || 'Tidak ditemukan'}`);
+            }
+            break;
+          }
+
+          const { x, y } = resolveTapCoordinates(s);
           if (x === 0 && y === 0) throw new Error('Tidak ada koordinat tap tersedia');
-          if ((s.matchMode && s.matchMode !== 'COORDINATE_ONLY') || s.templateImageBase64 || s.targetText) {
+          if (mode !== 'coordinate' && (s.templateImageBase64 || s.targetText)) {
             addLog('Step '+(i+1)+': [WARN] Image match failed, using manual coordinates ('+x+','+y+')', 'warn');
           }
           addLog('Step '+(i+1)+': 📱 ADB Tap ('+x+','+y+')', 'info');
@@ -4944,6 +5126,9 @@ window.addEventListener('keydown', e => {
   window.deleteProject = safeCall('deleteProject', deleteProject);
   window.showAdbInfo = safeCall('showAdbInfo', showAdbInfo);
   window.showTemplateModal = safeCall('showTemplateModal', showTemplateModal);
+
+  initQuickViewXml();
+  document.addEventListener('quickview-select-element', handleQuickViewSelectElement);
 
   const macroMount = document.getElementById('macro-recorder-mount');
   if (macroMount) {

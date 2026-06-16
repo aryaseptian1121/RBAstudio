@@ -1,0 +1,36 @@
+<div id="quick-view-xml-backdrop" class="quickview-modal-backdrop hidden" aria-modal="true" role="dialog">
+  <div class="quickview-panel" role="document">
+    <div class="quickview-panel-header">
+      <div>
+        <div class="quickview-panel-title">Quick View XML</div>
+        <div class="quickview-panel-subtitle">Inspect device UI hierarchy and choose an element</div>
+      </div>
+      <button id="quickview-close-btn" class="quickview-close-btn" aria-label="Close quick view">×</button>
+    </div>
+
+    <div class="quickview-panel-body">
+      <section class="quickview-pane quickview-screenshot-pane">
+        <div class="quickview-pane-label">Device screenshot</div>
+        <div class="quickview-screenshot-wrapper">
+          <img id="quickview-screenshot-img" class="quickview-screenshot-img" alt="Device screenshot" src="" />
+          <div id="quickview-screenshot-highlight" class="quickview-screenshot-highlight"></div>
+          <div id="quickview-screenshot-clickmask" class="quickview-screenshot-clickmask"></div>
+        </div>
+        <div id="quickview-screenshot-status" class="quickview-status-text">Tap image area to inspect.</div>
+      </section>
+
+      <section class="quickview-pane quickview-xml-pane">
+        <div class="quickview-xml-toolbar">
+          <div id="quickview-xml-status" class="quickview-status-text">Fetching UI hierarchy...</div>
+          <button id="quickview-copy-btn" class="quickview-btn quickview-btn-secondary" type="button">Copy XML</button>
+        </div>
+        <div id="quickview-xml-lines" class="quickview-xml-lines"></div>
+      </section>
+    </div>
+
+    <div class="quickview-panel-footer">
+      <button id="quickview-select-btn" class="quickview-btn quickview-btn-primary" type="button" disabled>USE THIS ELEMENT</button>
+      <div id="quickview-footer-hint" class="quickview-footer-hint">Pilih elemen dari screenshot atau XML.</div>
+    </div>
+  </div>
+</div>

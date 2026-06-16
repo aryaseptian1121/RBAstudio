@@ -3,6 +3,7 @@
   const Jimp = require('jimp');
   const ScreenVerifier = require('./screenVerifier');
   const { waitForText, destroyOcrWorker } = require('./ocrReader');
+  const uiDumpService = require('./src/main/services/uiDumpService');
   const { ExcelLoopEngine, setBrowserManager: setExcelLoopBrowserManager } = require('./src/services/ExcelLoopEngine');
 
   let isRunning = false;
@@ -176,6 +177,77 @@
       width: Math.min(maxWidth - 1, region.width + padding * 2),
       height: Math.min(maxHeight - 1, region.height + padding * 2)
     };
+  }
+
+  function normalizeText(value) {
+    return String(value || '').trim().toLowerCase();
+  }
+
+  function normalizeMatchMode(value) {
+    const mode = String(value || '').trim().toLowerCase();
+    if (!mode || mode === 'coordinate' || mode === 'coordinate_only') return 'COORDINATE_ONLY';
+    if (mode === 'xml_selector' || mode === 'xml selector') return 'XML_SELECTOR';
+    if (mode === 'image' || mode === 'image_only') return 'IMAGE';
+    if (mode === 'text') return 'TEXT';
+    if (mode === 'image_or_text' || mode === 'image or text' || mode === 'image+text' || mode === 'image and text') return 'IMAGE_OR_TEXT';
+    return 'COORDINATE_ONLY';
+  }
+
+  function selectDeepestNode(nodes) {
+    if (!Array.isArray(nodes) || nodes.length === 0) return null;
+    return nodes.reduce((best, node) => {
+      if (!node || typeof node.xpath !== 'string') return best;
+      const depth = (node.xpath.match(/node\[/g) || []).length;
+      const bestDepth = best && best.xpath ? (best.xpath.match(/node\[/g) || []).length : 0;
+      return depth > bestDepth ? node : best;
+    }, null);
+  }
+
+  function collectNodesByPredicate(node, predicate, collection = []) {
+    if (!node) return collection;
+    try {
+      if (predicate(node)) collection.push(node);
+    } catch (err) {
+      // Predicate error should not break recursion
+    }
+    for (const child of node.children || []) {
+      collectNodesByPredicate(child, predicate, collection);
+    }
+    return collection;
+  }
+
+  function findUiNodeByXmlSelector(root, selector = {}) {
+    if (!root || typeof root !== 'object') return null;
+    const resourceId = String(selector.resourceId || '').trim();
+    const textToFind = String(selector.textToFind || '').trim();
+    const contentDesc = String(selector.contentDesc || '').trim();
+    const xpath = String(selector.xpath || '').trim();
+
+    if (resourceId) {
+      const matches = collectNodesByPredicate(root, node => String(node['resource-id'] || '').trim() === resourceId);
+      return selectDeepestNode(matches);
+    }
+
+    if (textToFind) {
+      const exactMatches = collectNodesByPredicate(root, node => String(node.text || '').trim().toLowerCase() === textToFind.toLowerCase());
+      if (exactMatches.length > 0) return selectDeepestNode(exactMatches);
+      const partialMatches = collectNodesByPredicate(root, node => String(node.text || '').toLowerCase().includes(textToFind.toLowerCase()));
+      if (partialMatches.length > 0) return selectDeepestNode(partialMatches);
+    }
+
+    if (contentDesc) {
+      const exactDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').trim().toLowerCase() === contentDesc.toLowerCase());
+      if (exactDesc.length > 0) return selectDeepestNode(exactDesc);
+      const partialDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').toLowerCase().includes(contentDesc.toLowerCase()));
+      if (partialDesc.length > 0) return selectDeepestNode(partialDesc);
+    }
+
+    if (xpath) {
+      const pathMatches = collectNodesByPredicate(root, node => String(node.xpath || '').trim() === xpath);
+      if (pathMatches.length > 0) return selectDeepestNode(pathMatches);
+    }
+
+    return null;
   }
 
   async function captureScreen(device, options = {}) {
@@ -784,7 +856,7 @@
         if (templateImageBase64 && targetText) resolvedMode = 'IMAGE_OR_TEXT';
         else if (templateImageBase64) resolvedMode = 'IMAGE';
         else if (targetText) resolvedMode = 'TEXT';
-        if (data.matchMode && data.matchMode !== 'COORDINATE_ONLY') resolvedMode = data.matchMode;
+        if (data.matchMode) resolvedMode = normalizeMatchMode(data.matchMode);
 
         const matchThreshold = data.matchThreshold ?? Math.max(0.1, Math.min(1, (confidence || 80) / 100));
         const waitTimeout = data.waitTimeout ?? data.timeout ?? 30000;
@@ -849,6 +921,76 @@
         }
 
         // Enhanced visual element matching with wait/retry
+        if (resolvedMode === 'XML_SELECTOR') {
+          sendLog(sender, 'info', `[Mobile Tap] Starting XML selector search (timeout: ${data.timeoutMs ?? 30000}ms)`);
+          const selectorOptions = {
+            resourceId: data.resourceId || '',
+            textToFind: data.textToFind || '',
+            contentDesc: data.contentDesc || '',
+            xpath: data.xpath || ''
+          };
+          const xmlTimeout = data.timeoutMs ?? 30000;
+          const retryOnNotFound = data.retryOnNotFound !== false;
+          const startTimeXml = Date.now();
+          let xmlAttempt = 0;
+
+          while (true) {
+            xmlAttempt++;
+            const elapsed = Date.now() - startTimeXml;
+            sendLog(sender, 'info', `[Mobile Tap] XML selector attempt #${xmlAttempt} (${elapsed}ms elapsed)`);
+
+            try {
+              const dump = await uiDumpService.dumpUIHierarchy(data.deviceId || device);
+              if (!dump || !dump.trim()) {
+                throw new Error('Empty UI hierarchy dump');
+              }
+              const tree = uiDumpService.parseXMLToTree(dump);
+              const foundNode = findUiNodeByXmlSelector(tree, selectorOptions);
+              if (foundNode) {
+                const targetX = Math.round((foundNode.bounds.x1 + foundNode.bounds.x2) / 2);
+                const targetY = Math.round((foundNode.bounds.y1 + foundNode.bounds.y2) / 2);
+                const tapResult = await adbExec(device, `shell input tap ${targetX} ${targetY}`);
+                invalidateScreenCache(device);
+                if (!tapResult.success) {
+                  sendLog(sender, 'error', `[Mobile Tap] Tap failed on XML selector target: ${tapResult.error}`);
+                  return { success: false, error: 'Tap failed after XML selector matched' };
+                }
+                sendLog(sender, 'success', `✅ XML selector matched and tapped at (${targetX},${targetY})`);
+                return { success: true, method: 'xml_selector', x: targetX, y: targetY, node: foundNode };
+              }
+
+              if (!retryOnNotFound || elapsed >= xmlTimeout) {
+                sendLog(sender, 'warn', `[Mobile Tap] XML selector did not find any matching node after ${elapsed}ms`);
+                break;
+              }
+
+              await delay(1000);
+              if (Date.now() - startTimeXml >= xmlTimeout) break;
+              continue;
+            } catch (err) {
+              sendLog(sender, 'warn', `[Mobile Tap] XML selector attempt error: ${err.message}`);
+              if (!retryOnNotFound || Date.now() - startTimeXml >= xmlTimeout) break;
+              await delay(1000);
+            }
+          }
+
+          const xmlElapsed = Date.now() - startTimeXml;
+          sendLog(sender, 'error', `[Mobile Tap] XML selector failed after ${xmlElapsed}ms`);
+          if (coordinateX != null && coordinateY != null && coordinateX !== 0 && coordinateY !== 0) {
+            sendLog(sender, 'info', `⚠️ Falling back to saved coordinates (${coordinateX},${coordinateY})`);
+            const fallbackResult = await adbExec(device, `shell input tap ${coordinateX} ${coordinateY}`);
+            invalidateScreenCache(device);
+            if (!fallbackResult.success) {
+              sendLog(sender, 'error', `Fallback tap failed: ${fallbackResult.error}`);
+              throw new Error(`Element not found and fallback tap failed: ${fallbackResult.error}`);
+            }
+            sendLog(sender, 'success', `Tap at fallback coordinates ${coordinateX},${coordinateY}`);
+            return { success: true, method: 'coordinate_fallback', x: coordinateX, y: coordinateY };
+          }
+
+          throw new Error(`XML selector did not match any node after ${xmlElapsed}ms and no fallback coordinates available`);
+        }
+
         sendLog(sender, 'info', `[Mobile Tap] Starting visual element search (mode: ${resolvedMode}, timeout: ${waitTimeout}ms)`);
         
         const startTime = Date.now();

@@ -18,6 +18,7 @@ const SmartDetector = require('./src/smartDetector');
 const ElectronScreenshotProvider = require('./src/screenshotProviders/electronProvider');
 const AdbScreenshotProvider = require('./src/screenshotProviders/adbProvider');
 const { buildSmartTargetForClick } = require('./src/smartTargetCapture');
+const uiDumpService = require('./src/main/services/uiDumpService');
 
 // NEW: Get correct base path for both dev and production
 function getBasePath() {
@@ -1590,6 +1591,25 @@ function createWindow() {
 // ─────────────────────────────────────────
 ipcMain.on("open-external",   (e,url)=>shell.openExternal(url));
 ipcMain.on("get-devices",     (e)=>e.reply("device-list", pool.refresh()));
+
+ipcMain.handle('ui:dumpHierarchy', async (event, deviceId) => {
+  try {
+    const uiXml = await uiDumpService.dumpUIHierarchy(deviceId);
+    return { success: true, xml: uiXml };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('ui:findNodeAtCoordinate', async (event, { xmlString, x, y }) => {
+  try {
+    const tree = uiDumpService.parseXMLToTree(xmlString);
+    const node = uiDumpService.findNodeByCoordinate(tree, Number(x), Number(y));
+    return { success: true, node };
+  } catch (err) {
+    return { success: false, error: err.message || String(err) };
+  }
+});
 
 ipcMain.handle('browser:get-or-create-session', async (e, { profileKey, opts }) => {
     try {

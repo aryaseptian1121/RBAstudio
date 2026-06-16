@@ -567,6 +567,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 <link rel="stylesheet" href="assets/rba-ui.css">
 <link rel="stylesheet" href="assets/rba-flowretur.css">
 <link rel="stylesheet" href="workflows-redesign.css">
+<link rel="stylesheet" href="src/ui/quick-view-xml.css">
 </head>
 <body>
 <div class="shell">
@@ -1031,20 +1032,40 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <div class="prop-group" id="pg-mobile-tap" style="display:none;">
                 <label class="prop-label">Match Mode</label>
                 <select class="prop-input prop-select" id="pe-mtap-match-mode" onchange="saveProp('matchMode',this.value); toggleMobileTapFields(this.value)">
-                  <option value="COORDINATE_ONLY">Coordinate Only</option>
-                  <option value="IMAGE">Image Match</option>
-                  <option value="TEXT">Text Match</option>
-                  <option value="IMAGE_OR_TEXT">Image + Text</option>
+                  <option value="coordinate">Coordinate Only</option>
+                  <option value="xml_selector">XML Selector</option>
+                  <option value="image">Image Match</option>
+                  <option value="text">Text Match</option>
+                  <option value="image_or_text">Image + Text</option>
                 </select>
                 
-                <!-- Coordinate fields (always visible) -->
-                <label class="prop-label" style="margin-top:8px;">Coordinate X</label>
-                <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('coordinateX',+this.value)">
-                <label class="prop-label" style="margin-top:8px;">Coordinate Y</label>
-                <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('coordinateY',+this.value)">
-                
+                <!-- Coordinate fields -->
+                <div id="pg-mtap-coords">
+                  <label class="prop-label" style="margin-top:8px;">Coordinate X</label>
+                  <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('coordinateX',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Coordinate Y</label>
+                  <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('coordinateY',+this.value)">
+                  <div class="prop-help-text" style="font-size:12px;color:#9ca3af;margin-top:4px;">Coordinates used as fallback when XML selector tidak ditemukan.</div>
+                </div>
+
                 <!-- Enhanced Pick From Screen button -->
                 <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick Element (Image + Coords)</button>
+                <button id="btnQuickViewXml" class="prop-input" type="button" style="margin-top:8px;">Quick View XML</button>
+
+                <div id="pg-mtap-xml-selector" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Resource ID</label>
+                  <input class="prop-input" id="pe-mtap-resource-id" placeholder="com.example:id/login_button" oninput="saveProp('resourceId',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Text to Find</label>
+                  <input class="prop-input" id="pe-mtap-text-to-find" placeholder="Login" oninput="saveProp('textToFind',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Content Description</label>
+                  <input class="prop-input" id="pe-mtap-content-desc" placeholder="login button" oninput="saveProp('contentDesc',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">XPath</label>
+                  <input class="prop-input" id="pe-mtap-xpath" placeholder="/node[0]/node[1]/..." oninput="saveProp('xpath',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-xml-timeout" value="30000" oninput="saveProp('timeoutMs',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Retry if not found</label>
+                  <input class="prop-input" type="checkbox" id="pe-mtap-retry-not-found" checked onchange="saveProp('retryOnNotFound', this.checked)">
+                </div>
 
                 <!-- ── Region Selector ── -->
                 <div class="prop-section" id="regionSelectorSection">
