@@ -3,11 +3,13 @@ const path = require('path');
 const _quickviewHtml = fs.readFileSync(path.join(__dirname, 'quick-view-xml.html'), 'utf8');
 
 let quickViewState = {
-  selectedNode: null,
+  currentlySelectedNode: null,  // Current selected node (unified state)
   currentXml: '',
   currentTree: null,
   currentDeviceId: '',
   screenshotMeta: { width: 0, height: 0, displayWidth: 0, displayHeight: 0 },
+  xmlLineHandlersAttached: false,
+  xpathToLineMap: {},  // Map xpath -> DOM line element
 };
 
 const quickViewElements = {};
@@ -29,6 +31,7 @@ function mountQuickViewPanel() {
   quickViewElements.xmlLines = document.getElementById('quickview-xml-lines');
   quickViewElements.copyBtn = document.getElementById('quickview-copy-btn');
   quickViewElements.selectBtn = document.getElementById('quickview-select-btn');
+  quickViewElements.doneBtn = document.getElementById('quickview-done-btn');
   quickViewElements.footerHint = document.getElementById('quickview-footer-hint');
 
   quickViewElements.closeBtn.addEventListener('click', closeQuickViewPanel);
@@ -39,6 +42,7 @@ function mountQuickViewPanel() {
   quickViewElements.screenshotClickmask.addEventListener('click', handleScreenshotClick);
   quickViewElements.screenshotImg.addEventListener('load', updateScreenshotLayout);
   quickViewElements.selectBtn.addEventListener('click', selectCurrentNode);
+  quickViewElements.doneBtn.addEventListener('click', closeQuickViewPanel);
 }
 
 function getElectronApi() {
@@ -55,8 +59,9 @@ function getElectronApi() {
 
 function openQuickViewPanel(deviceId) {
   mountQuickViewPanel();
-  quickViewState.selectedNode = null;
+  quickViewState.currentlySelectedNode = null;
   quickViewState.currentDeviceId = deviceId || '';
+  quickViewState.xmlLineHandlersAttached = false;
   if (quickViewElements.xmlLines) quickViewElements.xmlLines.innerHTML = '';
   else console.error('[QuickViewXML] xmlLines element not mounted');
   if (quickViewElements.screenshotHighlight) quickViewElements.screenshotHighlight.style.display = 'none';
@@ -94,12 +99,17 @@ async function loadQuickViewContent(deviceId) {
       throw new Error(dumpResult.error || 'Gagal mengambil UI hierarchy');
     }
 
+    // Parse XML string (compressed, one-liner) into tree structure
     quickViewState.currentXml = dumpResult.xml || '';
+    quickViewState.currentTree = parseXMLToTree(quickViewState.currentXml);
+    
+    // Format tree as readable multi-line XML and render
     if (quickViewElements.xmlLines) {
-      quickViewElements.xmlLines.innerHTML = buildXmlLines(quickViewState.currentXml);
+      quickViewElements.xmlLines.innerHTML = buildXmlLinesFromTree(quickViewState.currentTree);
     } else {
       console.error('[QuickViewXML] xmlLines element not mounted');
     }
+    
     if (quickViewElements.xmlStatus) quickViewElements.xmlStatus.textContent = 'UI hierarchy loaded. Klik baris XML untuk pilih.';
     if (quickViewElements.xmlLines) attachXmlLineHandlers();
     updateScreenshotLayout();
@@ -115,31 +125,186 @@ async function loadQuickViewContent(deviceId) {
   }
 }
 
-function formatXmlLines(xmlString) {
-  return xmlString.replace(/\r\n?/g, '\n').split('\n');
+function parseXMLToTree(xmlString) {
+  // Copy of parseXMLToTree from uiDumpService for client-side use
+  const { XMLParser } = require('fast-xml-parser');
+  
+  if (!xmlString || typeof xmlString !== 'string') {
+    throw new Error('XML string kosong atau tidak valid');
+  }
+
+  const parser = new XMLParser({
+    ignoreAttributes: false,
+    attributeNamePrefix: '',
+    parseAttributeValue: false,
+    parseTagValue: false,
+  });
+
+  let parsed;
+  try {
+    parsed = parser.parse(xmlString);
+  } catch (error) {
+    console.error('[QuickViewXML] parseXMLToTree invalid XML:', error.message);
+    throw new Error(`Gagal parse XML: ${error.message}`);
+  }
+
+  const hierarchy = parsed?.hierarchy;
+  if (!hierarchy) {
+    throw new Error('XML tidak berisi elemen hierarchy');
+  }
+
+  const rootNodeData = hierarchy.node;
+  if (!rootNodeData) {
+    throw new Error('XML hierarchy tidak berisi node');
+  }
+
+  function buildNodeObject(rawNode, pathIndices = [0]) {
+    const node = {
+      index: Number(rawNode.index ?? 0),
+      text: String(rawNode.text ?? ''),
+      'resource-id': String(rawNode['resource-id'] ?? rawNode['resource_id'] ?? ''),
+      class: String(rawNode.class ?? ''),
+      package: String(rawNode.package ?? ''),
+      'content-desc': String(rawNode['content-desc'] ?? rawNode.contentDesc ?? rawNode.content_desc ?? ''),
+      checkable: String(rawNode.checkable ?? 'false').toLowerCase() === 'true',
+      bounds: parseBoundsFromString(rawNode.bounds),
+      children: [],
+      xpath: buildXPath(pathIndices),
+    };
+
+    const childNodes = rawNode.node || rawNode.child || [];
+    const normalizedChildren = Array.isArray(childNodes) ? childNodes : [childNodes];
+
+    for (let idx = 0; idx < normalizedChildren.length; idx += 1) {
+      const child = normalizedChildren[idx];
+      if (!child || (typeof child === 'string' && child.trim() === '')) continue;
+      node.children.push(buildNodeObject(child, [...pathIndices, idx]));
+    }
+
+    return node;
+  }
+
+  function buildXPath(pathIndices) {
+    return pathIndices.map((index) => `node[${index}]`).join('/');
+  }
+
+  function parseBoundsFromString(boundsString) {
+    const match = String(boundsString || '').match(/\[\s*(\d+)\s*,\s*(\d+)\s*\]\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/);
+    if (!match) {
+      return { x1: 0, y1: 0, x2: 0, y2: 0 };
+    }
+    return {
+      x1: Number(match[1]),
+      y1: Number(match[2]),
+      x2: Number(match[3]),
+      y2: Number(match[4]),
+    };
+  }
+
+  const rootNode = Array.isArray(rootNodeData)
+    ? buildNodeObject({ node: rootNodeData }, [0])
+    : buildNodeObject(rootNodeData, [0]);
+
+  return rootNode;
 }
 
-function buildXmlLines(xmlString) {
-  const lines = formatXmlLines(xmlString);
-  return lines.map((line, idx) => {
-    const lineEl = document.createElement('div');
-    lineEl.className = 'line';
-    lineEl.dataset.line = String(idx + 1);
-    lineEl.innerHTML = `
-      <div class="line-number">${idx + 1}</div>
-      <div class="line-content">${escapeHtml(line)}</div>
-    `;
-    return lineEl.outerHTML;
+function formatTreeAsXml(node, depth = 0) {
+  // Generate formatted XML string dari tree object dengan proper indentation
+  // Returns array of { lineText, node } untuk setiap baris
+  const lines = [];
+  const indent = '  '.repeat(depth);
+
+  // Build opening tag with attributes
+  const attrs = [];
+  if (node.index !== undefined) attrs.push(`index="${node.index}"`);
+  if (node.text) attrs.push(`text="${escapeHtml(node.text)}"`);
+  if (node['resource-id']) attrs.push(`resource-id="${escapeHtml(node['resource-id'])}"`);
+  if (node.class) attrs.push(`class="${escapeHtml(node.class)}"`);
+  if (node.package) attrs.push(`package="${escapeHtml(node.package)}"`);
+  if (node['content-desc']) attrs.push(`content-desc="${escapeHtml(node['content-desc'])}"`);
+  if (node.checkable) attrs.push(`checkable="true"`);
+  if (node.bounds) {
+    attrs.push(`bounds="[${node.bounds.x1},${node.bounds.y1}][${node.bounds.x2},${node.bounds.y2}]"`);
+  }
+
+  const attrStr = attrs.length > 0 ? ' ' + attrs.join(' ') : '';
+  const openTag = `${indent}<node${attrStr}${node.children.length === 0 ? ' /' : ''}>`;
+  
+  lines.push({
+    lineText: openTag,
+    node: node,
+    xpath: node.xpath,
+  });
+
+  // Add children
+  if (node.children.length > 0) {
+    for (const child of node.children) {
+      const childLines = formatTreeAsXml(child, depth + 1);
+      lines.push(...childLines);
+    }
+    
+    const closeTag = `${indent}</node>`;
+    lines.push({
+      lineText: closeTag,
+      node: null,
+      xpath: null,
+    });
+  }
+
+  return lines;
+}
+
+function buildXmlLinesFromTree(tree) {
+  // Build HTML for XML display dengan mapping xpath -> element
+  const formattedLines = formatTreeAsXml(tree);
+  quickViewState.xpathToLineMap = {};  // Reset map
+
+  const htmlLines = formattedLines.map((lineInfo, idx) => {
+    const lineNumber = idx + 1;
+    const { lineText, node, xpath } = lineInfo;
+    
+    // Store xpath -> line mapping untuk quick lookup
+    if (xpath) {
+      quickViewState.xpathToLineMap[xpath] = lineNumber;
+    }
+
+    return `<div class="line" data-line-index="${lineNumber}" data-xpath="${escapeHtml(xpath || '')}">
+      <div class="line-number">${lineNumber}</div>
+      <div class="line-content">${escapeHtml(lineText)}</div>
+    </div>`;
   }).join('');
+
+  return htmlLines;
 }
 
 function attachXmlLineHandlers() {
-  quickViewElements.xmlLines.querySelectorAll('.line').forEach((lineEl) => {
-    lineEl.addEventListener('click', async () => {
-      const lineIndex = Number(lineEl.dataset.line) - 1;
-      selectXmlLine(lineEl, lineIndex);
-    });
+  // Clean up old handlers first
+  detachXmlLineHandlers();
+  
+  // Attach fresh handlers to each line
+  const lineElements = quickViewElements.xmlLines.querySelectorAll('.line');
+  lineElements.forEach((lineEl) => {
+    const handler = () => {
+      selectXmlLine(lineEl);
+    };
+    lineEl.addEventListener('click', handler);
+    // Store handler reference for cleanup
+    lineEl._quickviewHandler = handler;
   });
+  
+  quickViewState.xmlLineHandlersAttached = true;
+}
+
+function detachXmlLineHandlers() {
+  if (!quickViewElements.xmlLines) return;
+  const lineElements = quickViewElements.xmlLines.querySelectorAll('.line');
+  lineElements.forEach((lineEl) => {
+    if (lineEl._quickviewHandler) {
+      lineEl.removeEventListener('click', lineEl._quickviewHandler);
+      delete lineEl._quickviewHandler;
+    }
+  });
+  quickViewState.xmlLineHandlersAttached = false;
 }
 
 function escapeHtml(value) {
@@ -147,25 +312,6 @@ function escapeHtml(value) {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
-}
-
-function parseBoundsFromLine(lineText) {
-  const match = lineText.match(/bounds="\[\s*(\d+)\s*,\s*(\d+)\s*\]\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]"/);
-  if (!match) return null;
-  return { x1: Number(match[1]), y1: Number(match[2]), x2: Number(match[3]), y2: Number(match[4]) };
-}
-
-function findXmlLineByNode(node) {
-  if (!node || !node.xpath) return null;
-  const terms = [node['resource-id'], node['content-desc'], node.class, node.text].filter(Boolean);
-  const lines = quickViewState.currentXml.replace(/\r\n?/g, '\n').split('\n');
-  for (let i = 0; i < lines.length; i += 1) {
-    const text = lines[i];
-    if (terms.some(term => term && text.includes(term))) {
-      return i;
-    }
-  }
-  return null;
 }
 
 function updateScreenshotLayout() {
@@ -176,6 +322,7 @@ function updateScreenshotLayout() {
 }
 
 function closeQuickViewPanel() {
+  detachXmlLineHandlers();
   quickViewElements.backdrop.classList.add('hidden');
 }
 
@@ -193,16 +340,49 @@ async function handleScreenshotClick(event) {
   const img = quickViewElements.screenshotImg;
   if (!img.src || !quickViewState.currentXml) return;
 
-  updateScreenshotLayout();
-  const rect = img.getBoundingClientRect();
-  const clickX = event.clientX - rect.left;
-  const clickY = event.clientY - rect.top;
-  const deviceX = Math.round((clickX / rect.width) * quickViewState.screenshotMeta.width);
-  const deviceY = Math.round((clickY / rect.height) * quickViewState.screenshotMeta.height);
+  // Calculate scale factors EVERY click to handle window resizing
+  const displayRect = img.getBoundingClientRect();
+  const displayWidth = displayRect.width;
+  const displayHeight = displayRect.height;
+  const naturalWidth = img.naturalWidth;
+  const naturalHeight = img.naturalHeight;
+
+  // Calculate relative click position within the image element
+  const clickXRelative = event.clientX - displayRect.left;
+  const clickYRelative = event.clientY - displayRect.top;
+
+  // Calculate scale factors (device coords / display coords)
+  const scaleX = naturalWidth / displayWidth;
+  const scaleY = naturalHeight / displayHeight;
+
+  // Calculate actual device coordinates
+  const deviceX = Math.round(clickXRelative * scaleX);
+  const deviceY = Math.round(clickYRelative * scaleY);
+
+  // DEBUG: Log calculation details for verification
+  console.log('[QuickViewXML] Click calculation:', {
+    displayWidth,
+    displayHeight,
+    naturalWidth,
+    naturalHeight,
+    clickXRelative,
+    clickYRelative,
+    scaleX: scaleX.toFixed(4),
+    scaleY: scaleY.toFixed(4),
+    deviceX,
+    deviceY,
+  });
 
   quickViewElements.screenshotStatus.textContent = `Coordinates: ${deviceX}, ${deviceY}`;
+  
+  // Use backend to find node at coordinate
   const electronApi = getElectronApi();
-  const result = await electronApi.invoke('ui:findNodeAtCoordinate', { xmlString: quickViewState.currentXml, x: deviceX, y: deviceY });
+  const result = await electronApi.invoke('ui:findNodeAtCoordinate', { 
+    xmlString: quickViewState.currentXml, 
+    x: deviceX, 
+    y: deviceY 
+  });
+  
   if (!result.success) {
     quickViewElements.footerHint.textContent = result.error || 'Node tidak ditemukan pada koordinat ini.';
     return;
@@ -213,33 +393,66 @@ async function handleScreenshotClick(event) {
     return;
   }
 
-  quickViewState.selectedNode = result.node;
-  highlightScreenshotNode(result.node.bounds);
-  highlightXmlNodeByXpath(result.node);
+  // Update global selection state with node from backend
+  quickViewState.currentlySelectedNode = result.node;
   quickViewElements.selectBtn.disabled = false;
+
+  // Highlight screenshot with bounds from selected node
+  highlightScreenshotNode(result.node.bounds);
+  
+  // Highlight matching line in XML view by xpath
+  highlightXmlNodeByXpath(result.node);
+  
   quickViewElements.footerHint.textContent = `Selected: ${result.node.xpath}`;
 }
 
-function selectXmlLine(lineEl, lineIndex) {
-  const lineText = lineEl.querySelector('.line-content')?.textContent || '';
-  const bounds = parseBoundsFromLine(lineText);
-  quickViewState.selectedNode = {
-    xpath: `line:${lineIndex + 1}`,
-    'resource-id': '',
-    text: lineText.trim(),
-    bounds,
-  };
+function findNodeByXpath(tree, xpath) {
+  // Find node object from tree by xpath
+  if (!tree || !xpath) return null;
 
-  quickViewElements.xmlLines.querySelectorAll('.line').forEach((el) => el.classList.remove('line-selected'));
-  lineEl.classList.add('line-selected');
+  function traverse(node) {
+    if (node.xpath === xpath) {
+      return node;
+    }
+    for (const child of node.children || []) {
+      const found = traverse(child);
+      if (found) return found;
+    }
+    return null;
+  }
+
+  return traverse(tree);
+}
+
+function selectXmlLine(lineEl) {
+  // User clicked on XML line manually
+  const xpath = lineEl.dataset.xpath;
+  
+  if (!xpath) {
+    console.warn('[QuickViewXML] Clicked line has no xpath');
+    return;
+  }
+
+  // Find corresponding node in tree
+  const node = findNodeByXpath(quickViewState.currentTree, xpath);
+  if (!node) {
+    console.warn(`[QuickViewXML] Node not found for xpath: ${xpath}`);
+    return;
+  }
+
+  // Update global selection state
+  quickViewState.currentlySelectedNode = node;
   quickViewElements.selectBtn.disabled = false;
-  quickViewElements.footerHint.textContent = `Selected line ${lineIndex + 1}`;
 
-  if (bounds) {
-    highlightScreenshotNode(bounds);
+  // Visual feedback
+  highlightXmlLine(lineEl);
+  if (node.bounds) {
+    highlightScreenshotNode(node.bounds);
   } else {
     quickViewElements.screenshotHighlight.style.display = 'none';
   }
+  
+  quickViewElements.footerHint.textContent = `Selected: ${node.xpath}`;
 }
 
 function highlightScreenshotNode(bounds) {
@@ -263,25 +476,44 @@ function highlightScreenshotNode(bounds) {
   quickViewElements.screenshotHighlight.style.height = `${h}px`;
 }
 
+function highlightXmlLine(lineEl) {
+  // Remove old highlight
+  quickViewElements.xmlLines.querySelectorAll('.line').forEach((el) => {
+    el.classList.remove('line-selected');
+  });
+
+  // Add highlight to this line
+  lineEl.classList.add('line-selected');
+  lineEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+}
+
 function highlightXmlNodeByXpath(node) {
-  quickViewElements.xmlLines.querySelectorAll('.line').forEach((el) => el.classList.remove('line-selected'));
-  const lineIndex = findXmlLineByNode(node);
-  if (lineIndex == null) return;
-  const match = quickViewElements.xmlLines.querySelector(`.line[data-line="${lineIndex + 1}"]`);
-  if (match) {
-    match.classList.add('line-selected');
-    match.scrollIntoView({ block: 'center', behavior: 'smooth' });
+  // Find line element with matching xpath and highlight it
+  if (!node || !node.xpath) return;
+
+  const lineEl = quickViewElements.xmlLines.querySelector(`[data-xpath="${escapeHtml(node.xpath)}"]`);
+  if (lineEl) {
+    highlightXmlLine(lineEl);
   }
 }
 
 function selectCurrentNode() {
-  if (!quickViewState.selectedNode) return;
+  // Handler for "USE THIS ELEMENT" button
+  if (!quickViewState.currentlySelectedNode) {
+    quickViewElements.footerHint.textContent = 'Tidak ada elemen yang dipilih. Klik screenshot atau baris XML terlebih dahulu.';
+    return;
+  }
+
+  const node = quickViewState.currentlySelectedNode;
   const payload = {
-    xpath: quickViewState.selectedNode.xpath || '',
-    resourceId: quickViewState.selectedNode['resource-id'] || '',
-    textToFind: quickViewState.selectedNode.text || '',
-    contentDesc: quickViewState.selectedNode['content-desc'] || ''
+    xpath: node.xpath || '',
+    resourceId: node['resource-id'] || '',
+    textToFind: node.text || '',
+    contentDesc: node['content-desc'] || ''
   };
+  
+  console.log('[QuickViewXML] selectCurrentNode payload:', payload);
+  
   const event = new CustomEvent('quickview-select-element', { detail: payload });
   document.dispatchEvent(event);
   closeQuickViewPanel();

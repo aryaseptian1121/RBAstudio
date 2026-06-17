@@ -17,14 +17,14 @@
 
 .quickview-panel {
   width: min(1200px, 100%);
-  max-height: calc(100vh - 48px);
+  height: 85vh; /* fixed modal height to create predictable layout */
   display: flex;
   flex-direction: column;
   background: var(--card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
-  overflow: hidden;
+  overflow: hidden; /* children handle their own scrolling */
 }
 
 .quickview-panel-header,
@@ -70,9 +70,10 @@
 }
 
 .quickview-panel-body {
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  min-height: 560px;
+  display: flex;
+  gap: 0;
+  flex: 1 1 auto; /* take remaining space between header and footer */
+  overflow: hidden; /* body will contain independent scrollable columns */
 }
 
 .quickview-pane {
@@ -88,15 +89,30 @@
   color: var(--dim2);
 }
 
+.quickview-screenshot-pane {
+  flex: 0 0 35%; /* left pane width preference (~35%) */
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid var(--border);
+}
+
 .quickview-screenshot-wrapper {
   position: relative;
-  flex: 1;
-  min-height: 320px;
-  max-height: calc(100vh - 320px);
+  flex: 1 1 auto;
+  height: 100%;
   background: var(--bg2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  overflow: auto;
+  overflow-y: auto; /* independent vertical scroll */
+  overflow-x: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 12px; /* padding so image not touch edges */
+  box-sizing: border-box;
 }
 
 .quickview-screenshot-img {
@@ -131,6 +147,7 @@
 }
 
 .quickview-xml-pane {
+  flex: 1 1 auto; /* right pane expands */
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -169,8 +186,9 @@
 }
 
 .quickview-xml-lines {
-  flex: 1;
-  overflow: auto;
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg2);
@@ -179,7 +197,7 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
   color: var(--text);
   font-size: 0.88rem;
-  white-space: pre-wrap;
+  white-space: pre;
 }
 
 .quickview-xml-lines .line {
@@ -189,10 +207,11 @@
   padding: 0 6px;
   cursor: pointer;
   border-radius: 6px;
+  transition: background-color 0.15s ease;
 }
 
 .quickview-xml-lines .line:hover {
-  background: rgba(255,255,255,0.05);
+  background: rgba(255,255,255,0.08);
 }
 
 .quickview-xml-lines .line-number {
@@ -202,11 +221,14 @@
 
 .quickview-xml-lines .line-content {
   color: var(--text);
-  white-space: pre-wrap;
+  white-space: pre;
 }
 
 .quickview-xml-lines .line-selected {
-  background: rgba(99, 102, 241, 0.18);
+  background: rgba(99, 102, 241, 0.25);
+  border-left: 3px solid var(--accent);
+  padding-left: 3px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .quickview-footer-hint {
@@ -216,6 +238,13 @@
 
 .quickview-panel-footer {
   border-top: 1px solid var(--border);
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0; /* keep footer visible at bottom of modal flow */
+  padding: 14px 20px; /* ensure consistent spacing */
 }
 
 @media (max-width: 1080px) {
@@ -227,4 +256,49 @@
     border-left: none;
     border-top: 1px solid var(--border);
   }
+}
+
+/* Visual Polish & Enhanced Styling */
+
+.quickview-screenshot-wrapper {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+}
+
+.quickview-screenshot-img {
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
+}
+
+.quickview-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  opacity: 0.95;
+}
+
+.quickview-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.quickview-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-focus);
+}
+
+.quickview-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quickview-pane-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.quickview-xml-lines {
+  background: linear-gradient(135deg, var(--bg2) 0%, rgba(255, 255, 255, 0.01) 100%);
+}
+
+.quickview-xml-lines .line-number {
+  text-align: right;
+  font-weight: 500;
+  opacity: 0.7;
 }
