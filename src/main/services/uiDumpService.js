@@ -4,7 +4,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
-const adbManager = require('../../utils/adbManager');
+const adbManager = require('../../../utils/adbManager');
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 8000;
