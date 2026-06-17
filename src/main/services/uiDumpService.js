@@ -4,9 +4,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { XMLParser } = require('fast-xml-parser');
+const adbManager = require('../../utils/adbManager');
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 8000;
+
+function getAdbBinary() {
+  const adbPath = adbManager?.adbBinary;
+  if (!adbPath) {
+    throw new Error('ADB tidak ditemukan. Pastikan adb tersedia di PATH atau Android SDK.');
+  }
+  return adbPath;
+}
 
 function parseBounds(boundsString) {
   const match = String(boundsString).match(/\[\s*(\d+)\s*,\s*(\d+)\s*\]\s*\[\s*(\d+)\s*,\s*(\d+)\s*\]/);
@@ -34,9 +43,10 @@ function buildXPath(pathIndices) {
 }
 
 async function execAdbCommand(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
-  console.log(`[uiDumpService] execAdbCommand: adb ${args.join(' ')}`);
+  const adbBinary = getAdbBinary();
+  console.log(`[uiDumpService] execAdbCommand: ${adbBinary} ${args.join(' ')}`);
   try {
-    const { stdout, stderr } = await execFileAsync('adb', args, {
+    const { stdout, stderr } = await execFileAsync(adbBinary, args, {
       timeout: timeoutMs,
       maxBuffer: 10 * 1024 * 1024,
     });
@@ -45,6 +55,9 @@ async function execAdbCommand(args, timeoutMs = DEFAULT_TIMEOUT_MS) {
     return { stdout: String(stdout), stderr: String(stderr) };
   } catch (error) {
     const output = String(error.stderr || error.stdout || error.message || error);
+    if (error.code === 'ENOENT') {
+      throw new Error(`ADB executable not found: ${adbBinary}`);
+    }
     if (error.killed || error.signal === 'SIGTERM' || error.signal === 'SIGKILL') {
       throw new Error(`ADB command timeout after ${timeoutMs}ms: ${output.trim()}`);
     }
@@ -105,6 +118,9 @@ async function dumpUIHierarchy(deviceId) {
       }
       if (/timeout/i.test(message)) {
         throw new Error(`Timeout saat mengambil UI hierarchy: ${message}`);
+      }
+      if (message.includes('ADB executable not found')) {
+        throw new Error(`ADB tidak ditemukan: ${message}`);
       }
       throw new Error(`Gagal mengambil UI hierarchy: ${message}`);
     }
