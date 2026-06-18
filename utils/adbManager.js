@@ -11,6 +11,9 @@
 
 const { exec } = require('child_process');
 const { execSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
 
 class ADBManager {
   constructor() {
@@ -28,24 +31,79 @@ class ADBManager {
    */
   init() {
     try {
-      const candidates = process.platform === 'win32'
-        ? ['adb.exe', 'C:\\Android\\platform-tools\\adb.exe']
-        : ['/opt/homebrew/bin/adb', '/usr/local/bin/adb', 'adb'];
-      
-      for (const bin of candidates) {
-        try {
-          execSync(`"${bin}" version`, { timeout: 2000, stdio: 'ignore' });
-          this.adbBinary = bin;
-          console.log('[ADB] Found:', bin);
-          break;
-        } catch (e) {
-          // Try next candidate
+      const candidates = [];
+
+      // 1. Android SDK env
+      const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+      if (androidHome) {
+        candidates.push(path.join(androidHome, 'platform-tools', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+      }
+
+      // 2. ADB_PATH env (can be multiple, delimited)
+      if (process.env.ADB_PATH) {
+        for (const cand of process.env.ADB_PATH.split(path.delimiter).filter(Boolean)) {
+          candidates.push(cand);
         }
       }
-      
+
+      // 3. Platform specific defaults
+      if (os.platform() === 'darwin') {
+        candidates.push('/opt/homebrew/bin/adb');
+        candidates.push('/usr/local/bin/adb');
+        candidates.push('/usr/local/Cellar/android-platform-tools/35.0.2/platform-tools/adb');
+        candidates.push(path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'));
+        candidates.push(path.join(os.homedir(), 'Android', 'sdk', 'platform-tools', 'adb'));
+      } else if (os.platform() === 'win32') {
+        candidates.push(path.join(os.homedir(),'AppData','Local','Android','Sdk','platform-tools','adb.exe'));
+        candidates.push('C:\Android\platform-tools\adb.exe');
+      } else {
+        // linux
+        candidates.push('/usr/local/bin/adb');
+        candidates.push('/usr/bin/adb');
+      }
+
+      // 4. Try which/where
+      try {
+        const cmd = os.platform()==='win32' ? 'where adb' : 'which adb';
+        const result = execSync(cmd, { stdio:['ignore','pipe','ignore'], encoding:'utf8' }).toString().trim();
+        if (result) candidates.push(result.split(/\r?\n/)[0]);
+      } catch(e){}
+
+      // 5. macOS/Linux login shell PATH fallback
+      if (os.platform() !== 'win32') {
+        try {
+          const shell = process.env.SHELL || '/bin/zsh';
+          const shellPath = execSync(`${shell} -l -c "which adb"`, { stdio:['ignore','pipe','ignore'], encoding:'utf8', timeout:5000 }).toString().trim();
+          if (shellPath) candidates.push(shellPath);
+        } catch(e){}
+      }
+
+      // 6. Final generic candidate (plain command) - try last
+      candidates.push(os.platform()==='win32' ? 'adb.exe' : 'adb');
+
+      const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
+
+      for (const cand of uniqueCandidates) {
+        try {
+          // If candidate looks like an absolute or relative path, check file exists first
+          const looksLikePath = cand.includes(path.sep) || path.isAbsolute(cand);
+          if (looksLikePath && !fs.existsSync(cand)) {
+            continue;
+          }
+
+          // Try running `${cand} version` to verify
+          execSync(`"${cand}" version`, { timeout: 3000, stdio:'ignore' });
+          this.adbBinary = cand;
+          console.log('[ADB] Found:', cand);
+          break;
+        } catch (_) {
+          continue;
+        }
+      }
+
       if (!this.adbBinary) {
-        console.warn('[ADB] Binary not found, will fall back to PATH');
-        this.adbBinary = 'adb';
+        console.warn('[ADB] Binary not found in any known location. ADB features will be limited until configured.');
+        this.adbBinary = null;
       }
 
       this.startRefreshLoop();
