@@ -33,6 +33,20 @@ function saveSettingsFile(obj) {
     return obj;
 }
 
+function getBundledBinaryPath(binName) {
+    const suffix = os.platform() === 'win32' ? '.exe' : '';
+    const fileName = `${binName}${suffix}`;
+    const candidates = [];
+    if (app.isPackaged) {
+        candidates.push(path.join(process.resourcesPath, 'bin', fileName));
+        candidates.push(path.join(process.resourcesPath, 'resources', 'bin', fileName));
+    } else {
+        candidates.push(path.join(__dirname, 'resources', 'bin', fileName));
+        candidates.push(path.join(__dirname, 'scrcpy', fileName));
+    }
+    return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
 // ─────────────────────────────────────────
 // DEVICE POOL & ADB
 // ─────────────────────────────────────────
@@ -63,6 +77,8 @@ class DevicePool {
         }
         
         // 3. Platform default paths
+        const bundledAdb = getBundledBinaryPath('adb');
+        if (bundledAdb) defaults.push(bundledAdb);
         const defaults = [];
         if (os.platform() === 'win32') {
             defaults.push(path.join(os.homedir(),'AppData','Local','Android','Sdk','platform-tools','adb.exe'));
@@ -83,7 +99,7 @@ class DevicePool {
     }
 
     adb(args, device, cb) {
-        const bin = this.findAdb() || 'adb';
+        const bin = this.findAdb() || getBundledBinaryPath('adb') || 'adb';
         const dFlag = device ? '-s "' + device + '"' : '';
         const cmd = '"' + bin + '" ' + dFlag + ' ' + args + '';
         exec(cmd, { timeout: 15000, encoding:'utf8' }, (err, stdout, stderr) => {
@@ -93,7 +109,7 @@ class DevicePool {
 
     refresh() {
         try {
-            const bin = this.findAdb() || 'adb';
+            const bin = this.findAdb() || getBundledBinaryPath('adb') || 'adb';
             const out = execSync('"' + bin + '" devices', { encoding:'utf8', timeout:5000 });
             this.devices = out.split('\n').slice(1)
                 .map(l=>l.trim())
@@ -105,8 +121,9 @@ class DevicePool {
 
     launchScrcpy(device, args='') {
         try {
+            const bundledScrcpy = getBundledBinaryPath('scrcpy');
             const cmd = os.platform()==='win32' ? 'where scrcpy' : 'which scrcpy';
-            const scrcpy = execSync(cmd,{stdio:['ignore','pipe','ignore']}).toString().trim().split(/\r?\n/)[0];
+            const scrcpy = bundledScrcpy || execSync(cmd,{stdio:['ignore','pipe','ignore']}).toString().trim().split(/\r?\n/)[0];
             const dFlag = device ? '-s "' + device + '"' : '';
             if (this.scrcpyProc) { try{this.scrcpyProc.kill();}catch(e){} }
             this.scrcpyProc = spawn(scrcpy, [...dFlag.split(' ').filter(Boolean), ...args.split(' ').filter(Boolean)], { detached:true, stdio:'ignore' });
@@ -175,7 +192,7 @@ ipcMain.handle("open-file-dialog", async (e, opts)=>{
 // ADB WiFi connect
 ipcMain.handle("adb-connect-wifi", async (e, { ip, port })=>{
     return new Promise(resolve=>{
-        const bin = pool.findAdb() || 'adb';
+        const bin = pool.findAdb() || getBundledBinaryPath('adb') || 'adb';
         exec('"' + bin + '" connect ' + ip + ':' + port||5555 + '', {encoding:'utf8', timeout:10000}, (err, stdout)=>{
             const success = !err && stdout.includes('connected');
             resolve({success, output:stdout||'', error:err?.message||''});

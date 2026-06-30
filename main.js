@@ -29,6 +29,22 @@ function getBasePath() {
   }
 }
 
+function getBinPath(binName) {
+  const suffix = process.platform === 'win32' ? '.exe' : '';
+  const fileName = `${binName}${suffix}`;
+  const candidates = [];
+
+  if (app.isPackaged) {
+    candidates.push(path.join(process.resourcesPath, 'bin', fileName));
+    candidates.push(path.join(process.resourcesPath, 'resources', 'bin', fileName));
+  } else {
+    candidates.push(path.join(__dirname, 'resources', 'bin', fileName));
+    candidates.push(path.join(__dirname, 'scrcpy', fileName));
+  }
+
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
 function logBinaryError(tool, message) {
   const errMsg = `${tool} error: ${message}`;
   console.error(errMsg);
@@ -100,8 +116,10 @@ class DevicePool {
 
         // 3. Local project and bundled resources
         const basePath = getBasePath();
+        const bundledAdb = getBinPath('adb');
         candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'adb.exe' : 'adb'));
         candidates.push(path.join(basePath, os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        if (bundledAdb) candidates.push(bundledAdb);
         candidates.push(path.join(process.resourcesPath || basePath, 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
         candidates.push(path.join(process.resourcesPath || basePath, 'resources', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
         candidates.push(path.join(process.resourcesPath || basePath, 'assets', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
@@ -147,6 +165,116 @@ class DevicePool {
         this.adbPath = null;
         logBinaryError('adb', 'ADB tidak ditemukan. Pastikan adb tersedia di PATH, Android SDK, atau install dengan Homebrew.');
         return null;
+    }
+
+    async findAdbAsync() {
+        if (this.adbPath) return this.adbPath;
+        const candidates = [];
+        const settings = loadSettings();
+
+        if (settings.adbPath) candidates.push(settings.adbPath);
+        const androidHome = process.env.ANDROID_HOME || process.env.ANDROID_SDK_ROOT;
+        if (androidHome) {
+            candidates.push(path.join(androidHome, 'platform-tools', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        }
+        if (process.env.ADB_PATH) {
+            for (const cand of process.env.ADB_PATH.split(path.delimiter).filter(Boolean)) {
+                candidates.push(cand);
+            }
+        }
+
+        if (os.platform() === 'darwin') {
+            candidates.push('/opt/homebrew/bin/adb');
+            candidates.push('/usr/local/bin/adb');
+            candidates.push('/usr/local/Cellar/android-platform-tools/35.0.2/platform-tools/adb');
+            candidates.push(path.join(os.homedir(), 'Library', 'Android', 'sdk', 'platform-tools', 'adb'));
+            candidates.push(path.join(os.homedir(), 'Android', 'sdk', 'platform-tools', 'adb'));
+        }
+
+        const basePath = getBasePath();
+        const bundledAdb = getBinPath('adb');
+        candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(basePath, os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        if (bundledAdb) candidates.push(bundledAdb);
+        candidates.push(path.join(process.resourcesPath || basePath, 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(process.resourcesPath || basePath, 'resources', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+        candidates.push(path.join(process.resourcesPath || basePath, 'assets', 'bin', os.platform()==='win32' ? 'adb.exe' : 'adb'));
+
+        try {
+            const cmd = os.platform()==='win32' ? 'where adb' : 'which adb';
+            const result = await new Promise((resolve) => {
+                exec(cmd, { stdio:['ignore','pipe','ignore'], encoding:'utf8', timeout:5000 }, (err, stdout) => {
+                    resolve(err ? '' : String(stdout).trim());
+                });
+            });
+            const found = result.split(/\r?\n/)[0];
+            if (found) candidates.push(found);
+        } catch(e){}
+
+        if (os.platform() !== 'win32') {
+            try {
+                const shell = process.env.SHELL || '/bin/zsh';
+                const shellPath = await new Promise((resolve) => {
+                    exec(`${shell} -l -c "which adb"`, { stdio:['ignore','pipe','ignore'], encoding:'utf8', timeout:5000 }, (err, stdout) => {
+                        resolve(err ? '' : String(stdout).trim());
+                    });
+                });
+                if (shellPath) candidates.push(shellPath);
+            } catch(e){}
+        }
+
+        if (os.platform() === 'win32') {
+            candidates.push(path.join(os.homedir(),'AppData','Local','Android','Sdk','platform-tools','adb.exe'));
+            candidates.push(path.join(app.getPath('userData'), 'adb', 'adb.exe'));
+        } else {
+            candidates.push('/usr/local/bin/adb', '/usr/bin/adb');
+        }
+
+        const uniqueCandidates = [...new Set(candidates.filter(Boolean))];
+        for (const cand of uniqueCandidates) {
+            try {
+                if (fs.existsSync(cand)) {
+                    const ok = await new Promise((resolve) => {
+                        exec(`"${cand}" version`, { timeout: 3000, stdio:'pipe', encoding:'utf8' }, (err) => resolve(!err));
+                    });
+                    if (ok) {
+                        this.adbPath = cand;
+                        console.log(`[ADB] Ditemukan di: ${cand}`);
+                        return cand;
+                    }
+                }
+            } catch (_) {
+                continue;
+            }
+        }
+
+        this.adbPath = null;
+        logBinaryError('adb', 'ADB tidak ditemukan. Pastikan adb tersedia di PATH, Android SDK, atau install dengan Homebrew.');
+        return null;
+    }
+
+    async refreshAsync() {
+        const bin = await this.findAdbAsync();
+        if (!bin) {
+            this.devices = [];
+            return this.devices;
+        }
+        return new Promise(resolve => {
+            exec(`"${bin}" devices`, { encoding:'utf8', timeout:4000 }, (err, stdout) => {
+                if (err) {
+                    console.warn('[ADB] Device refresh failed:', err.message);
+                    if (err.message && err.message.includes('ENOENT')) {
+                        this.devices = [];
+                    }
+                    return resolve(this.devices);
+                }
+                this.devices = stdout.split('\n').slice(1)
+                    .map(l=>l.trim())
+                    .filter(l => l && l.includes('\tdevice'))
+                    .map(l => l.split(/\s+/)[0]);
+                resolve(this.devices);
+            });
+        });
     }
 
     adb(args, device, cb, options = {}) {
@@ -203,8 +331,10 @@ class DevicePool {
         
         // Local project scrcpy folder (production: resourcesPath, dev: __dirname)
         const basePath = getBasePath();
+        const bundledScrcpy = getBinPath('scrcpy');
         candidates.push(path.join(basePath, 'scrcpy', os.platform()==='win32' ? 'scrcpy.exe' : 'scrcpy'));
         candidates.push(path.join(basePath, os.platform()==='win32' ? 'scrcpy.exe' : 'scrcpy'));
+        if (bundledScrcpy) candidates.push(bundledScrcpy);
 
         for (const cand of candidates) {
             if (cand && fs.existsSync(cand)) { this.scrcpyPath = cand; return cand; }
@@ -422,7 +552,10 @@ ipcMain.handle('macro-start-recording', async (event, options = {}) => {
 
   const hook = getIOHook();
   if (!hook) {
-    return { ok: false, message: 'uiohook-napi tidak tersedia. Jalankan npm install uiohook-napi && npx electron-rebuild' };
+    return {
+      ok: false,
+      message: 'uiohook-napi tidak tersedia atau gagal dimuat di build terpaket. Pastikan modul native ini dibundel dan di-unpack oleh electron-builder.'
+    };
   }
 
   try { hook.stop(); } catch (e) {}
@@ -562,7 +695,8 @@ ipcMain.handle('macro-play', async (event, { events = [], speed = 1.0, loops = 1
   try {
     robot = require('robotjs');
   } catch (e) {
-    return { ok: false, message: 'robotjs tidak tersedia' };
+    const detail = e && (e.message || e.code) ? `${e.message} (${e.code || 'load-failed'})` : String(e);
+    return { ok: false, message: `robotjs tidak tersedia atau gagal dimuat: ${detail}` };
   }
 
   macroEngine.isPlaying = true;
@@ -864,7 +998,15 @@ ipcMain.handle('check-macos-permissions', () => {
 ipcMain.handle('open-accessibility-settings', () => {
   if (process.platform !== 'darwin') return { ok: true };
 
-  exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+  try {
+    const child = spawn('open', ['x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'], {
+      stdio: 'ignore',
+      detached: true,
+    });
+    child.unref();
+  } catch (err) {
+    console.warn('[MacroRecorder] open-accessibility-settings failed:', err?.message || err);
+  }
   return { ok: true };
 });
 
@@ -2005,9 +2147,9 @@ ipcMain.handle("launch-scrcpy", (e, { device, args })=>{
 });
 
 // ADB device check (detailed)
-ipcMain.handle("adb-info", ()=>{
-    const adb = pool.findAdb();
-    const devices = adb ? pool.refresh() : [];
+ipcMain.handle("adb-info", async ()=>{
+    const adb = await pool.findAdbAsync();
+    const devices = adb ? await pool.refreshAsync() : [];
     return { found:!!adb, path:adb||'Not found', devices };
 });
 

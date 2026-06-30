@@ -15,6 +15,19 @@ const fs = require('fs');
 const path = require('path');
 const os = require('os');
 
+function getBundledBinaryPath(binName) {
+  const suffix = os.platform() === 'win32' ? '.exe' : '';
+  const fileName = `${binName}${suffix}`;
+  const candidates = [];
+  if (process.resourcesPath) {
+    candidates.push(path.join(process.resourcesPath, 'bin', fileName));
+    candidates.push(path.join(process.resourcesPath, 'resources', 'bin', fileName));
+  }
+  candidates.push(path.join(__dirname, '..', 'resources', 'bin', fileName));
+  candidates.push(path.join(__dirname, '..', 'scrcpy', fileName));
+  return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+}
+
 class ADBManager {
   constructor() {
     this.lastKnownDevices = [];
@@ -79,6 +92,8 @@ class ADBManager {
       }
 
       // 6. Final generic candidate (plain command) - try last
+      const bundledAdb = getBundledBinaryPath('adb');
+      if (bundledAdb) candidates.push(bundledAdb);
       candidates.push(os.platform()==='win32' ? 'adb.exe' : 'adb');
 
       const uniqueCandidates = [...new Set(candidates.filter(Boolean))];

@@ -1,5 +1,6 @@
   const { exec } = require('child_process');
   const fs = require('fs');
+  const path = require('path');
   const Jimp = require('jimp');
   const ScreenVerifier = require('./screenVerifier');
   const { waitForText, destroyOcrWorker } = require('./ocrReader');
@@ -18,6 +19,19 @@
   };
   const SCREENSHOT_CACHE_TTL = 300; // milliseconds
   const lastFoundPositions = new Map();
+
+  function getBundledBinaryPath(binName) {
+    const suffix = process.platform === 'win32' ? '.exe' : '';
+    const fileName = `${binName}${suffix}`;
+    const candidates = [];
+    if (process.resourcesPath) {
+      candidates.push(path.join(process.resourcesPath, 'bin', fileName));
+      candidates.push(path.join(process.resourcesPath, 'resources', 'bin', fileName));
+    }
+    candidates.push(path.join(__dirname, 'resources', 'bin', fileName));
+    candidates.push(path.join(__dirname, 'scrcpy', fileName));
+    return candidates.find((candidate) => candidate && fs.existsSync(candidate)) || null;
+  }
 
   function delay(ms) {
     return new Promise(resolve => setTimeout(resolve, Math.max(0, ms)));
@@ -113,7 +127,7 @@
   }
 
   function defaultAdbExecutor(args, device, cb, options = {}) {
-    const bin = 'adb';
+    const bin = getBundledBinaryPath('adb') || 'adb';
     const dFlag = device ? `-s "${device}"` : '';
     const cmd = `${bin} ${dFlag} ${args}`;
     const execOptions = {
