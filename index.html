@@ -360,6 +360,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .prop-label{font-size:10px;font-weight:700;color:var(--dim2);letter-spacing:.06em;margin-bottom:5px;display:block;text-transform:uppercase;}
 .prop-input{width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px;outline:none;transition:.15s;}
 .prop-input:focus{border-color:var(--accent-blue);background:var(--input-focus);}
+.prop-input.prop-warning-device{border-color:#f59e0b!important;box-shadow:0 0 0 3px rgba(245,158,11,0.18);}
 .prop-select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0l6 8 6-8z' fill='%2364748b'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;transition:border-color var(--transition-fast) ease,box-shadow var(--transition-fast) ease;}
 .prop-input, .prop-select, #prop-editor textarea {
   transition:border-color var(--transition-fast) ease,box-shadow var(--transition-fast) ease,opacity var(--transition-fast) ease;
@@ -1025,7 +1026,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <!-- MOBILE / DEVICE -->
               <div class="prop-group" id="pg-mobile" style="display:none;">
                 <label class="prop-label">Device ID (kosong = perangkat aktif)</label>
-                <input class="prop-input" id="pe-device-id" placeholder="emulator-5554" oninput="saveProp('deviceId',this.value)">
+                <input class="prop-input" id="pe-device-id" placeholder="Kosong = perangkat aktif" oninput="saveProp('deviceId',this.value)">
               </div>
 
               <!-- MOBILE TAP -->
@@ -1122,8 +1123,12 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
                 
                 <!-- Match Threshold (for IMAGE and IMAGE_OR_TEXT modes) -->
                 <div id="pg-mtap-threshold" style="display:none; margin-top:8px;">
-                  <label class="prop-label">Match Threshold (0.0 - 1.0)</label>
-                  <input class="prop-input" type="number" id="pe-mtap-threshold" min="0" max="1" step="0.05" value="0.85" oninput="saveProp('matchThreshold',+this.value)">
+                  <label class="prop-label">Match Confidence Threshold (0.0 - 1.0)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-threshold" min="0" max="1" step="0.05" value="0.75" oninput="saveProp('matchThreshold',+this.value)">
+                </div>
+                <div id="pg-mtap-fallback" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Fallback to raw coordinates if image not found</label>
+                  <input class="prop-input" type="checkbox" id="pe-mtap-fallback-raw" onchange="saveProp('allowRawCoordsFallback', this.checked)">
                 </div>
                 
                 <!-- Wait/Retry settings (for IMAGE, TEXT, IMAGE_OR_TEXT modes) -->

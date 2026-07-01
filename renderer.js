@@ -1152,7 +1152,17 @@ function showProp(s) {
   document.getElementById('pe-ex').value = s.ex ?? 0;
   document.getElementById('pe-ey').value = s.ey ?? 0;
   // Mobile
-  document.getElementById('pe-device-id').value = s.deviceId ?? '';
+  const deviceIdInput = document.getElementById('pe-device-id');
+  const stepDeviceId = String(s.deviceId || '').trim();
+  const activeDeviceId = getActiveAdbDevice();
+  if (deviceIdInput) {
+    deviceIdInput.value = stepDeviceId;
+    const isMismatch = stepDeviceId && activeDeviceId && stepDeviceId !== activeDeviceId;
+    deviceIdInput.classList.toggle('prop-warning-device', isMismatch);
+    deviceIdInput.title = isMismatch
+      ? 'Device ID tidak sesuai dengan perangkat aktif. Kosongkan untuk menggunakan perangkat aktif.'
+      : 'Kosongkan untuk menggunakan perangkat aktif.';
+  }
   if (document.getElementById('pe-mtap-x')) document.getElementById('pe-mtap-x').value = s.mx ?? 0;
   if (document.getElementById('pe-mtap-y')) document.getElementById('pe-mtap-y').value = s.my ?? 0;
   if (document.getElementById('pe-mtap-randomize')) document.getElementById('pe-mtap-randomize').checked = Boolean(s.randomizeTapOffset);
@@ -1235,7 +1245,8 @@ function showProp(s) {
   if (document.getElementById('pe-mtap-content-desc')) document.getElementById('pe-mtap-content-desc').value = s.contentDesc ?? '';
   if (document.getElementById('pe-mtap-xpath')) document.getElementById('pe-mtap-xpath').value = s.xpath ?? '';
   if (document.getElementById('pe-mtap-target-text')) document.getElementById('pe-mtap-target-text').value = s.targetText ?? '';
-  if (document.getElementById('pe-mtap-threshold')) document.getElementById('pe-mtap-threshold').value = s.matchThreshold ?? 0.85;
+  if (document.getElementById('pe-mtap-threshold')) document.getElementById('pe-mtap-threshold').value = s.matchThreshold ?? 0.75;
+  if (document.getElementById('pe-mtap-fallback-raw')) document.getElementById('pe-mtap-fallback-raw').checked = Boolean(s.allowRawCoordsFallback);
   if (document.getElementById('pe-mtap-timeout')) document.getElementById('pe-mtap-timeout').value = s.waitTimeout ?? 30000;
   if (document.getElementById('pe-mtap-interval')) document.getElementById('pe-mtap-interval').value = s.retryInterval ?? 1000;
   if (document.getElementById('pe-mtap-xml-timeout')) document.getElementById('pe-mtap-xml-timeout').value = s.timeoutMs ?? 30000;
@@ -1318,6 +1329,10 @@ function saveProp(key, val) {
   const s = project.steps[selectedIdx];
   if (!s) return;
   
+  if (key === 'deviceId') {
+    val = String(val || '').trim();
+  }
+
   const oldVal = s[key];
   s[key] = val;
   isDirty = true;  // Mark as unsaved when property changes
@@ -1374,6 +1389,7 @@ function toggleMobileTapFields(matchMode) {
   const templateDiv = document.getElementById('pg-mtap-template');
   const textDiv = document.getElementById('pg-mtap-text');
   const thresholdDiv = document.getElementById('pg-mtap-threshold');
+  const fallbackDiv = document.getElementById('pg-mtap-fallback');
   const waitDiv = document.getElementById('pg-mtap-wait');
   const xmlSelectorDiv = document.getElementById('pg-mtap-xml-selector');
   const coordsDiv = document.getElementById('pg-mtap-coords');
@@ -1382,6 +1398,7 @@ function toggleMobileTapFields(matchMode) {
   const showTemplate = normalizedMode === 'image' || normalizedMode === 'image_or_text';
   const showText = normalizedMode === 'text' || normalizedMode === 'image_or_text';
   const showThreshold = normalizedMode === 'image' || normalizedMode === 'image_or_text';
+  const showFallback = normalizedMode === 'image' || normalizedMode === 'image_or_text';
   const showWait = normalizedMode === 'image' || normalizedMode === 'text' || normalizedMode === 'image_or_text';
   const showXmlSelector = normalizedMode === 'xml_selector';
   const showCoords = normalizedMode !== 'xml_selector';
@@ -1389,6 +1406,7 @@ function toggleMobileTapFields(matchMode) {
   if (templateDiv) templateDiv.style.display = showTemplate ? 'block' : 'none';
   if (textDiv) textDiv.style.display = showText ? 'block' : 'none';
   if (thresholdDiv) thresholdDiv.style.display = showThreshold ? 'block' : 'none';
+  if (fallbackDiv) fallbackDiv.style.display = showFallback ? 'block' : 'none';
   if (waitDiv) waitDiv.style.display = showWait ? 'block' : 'none';
   if (xmlSelectorDiv) xmlSelectorDiv.style.display = showXmlSelector ? 'block' : 'none';
   if (coordsDiv) coordsDiv.style.display = showCoords ? 'block' : 'none';
@@ -1863,24 +1881,30 @@ function saveScreenPickerResult(result) {
   }
 
   if (result.mode === 'element') {
-    // Enhanced Pick From Screen for mobile-tap: capture template image + OCR text
-    const dataUrl = 'data:image/png;base64,' + result.imageBase64;
+    // NEW: Enhanced Pick From Screen for mobile-tap: capture template image + OCR text
+    const templateBase64 = result.imageBase64 || result.base64 || '';
+    const dataUrl = templateBase64 ? ('data:image/png;base64,' + templateBase64) : '';
+    const captureScreenWidth = Number(result.captureScreenWidth || result.deviceWidth || result.deviceSize?.width || deviceSize?.width || 0);
+    const captureScreenHeight = Number(result.captureScreenHeight || result.deviceHeight || result.deviceSize?.height || deviceSize?.height || 0);
     
-    // Save coordinates
+    // FIX: Save coordinates and image metadata for runtime image matching
     saveProp('coordinateX', result.x);
     saveProp('coordinateY', result.y);
-    
-    // Save template image
-    saveProp('templateImageBase64', result.imageBase64);
+    saveProp('captureCoordX', result.x);
+    saveProp('captureCoordY', result.y);
+    saveProp('captureScreenWidth', captureScreenWidth);
+    saveProp('captureScreenHeight', captureScreenHeight);
+    saveProp('templateImageBase64', templateBase64);
     
     // Save OCR text if available
     if (result.ocrText) {
       saveProp('targetText', result.ocrText.trim());
     }
     
-    // Set default match mode and other properties
-    saveProp('matchMode', 'image_or_text');
-    saveProp('matchThreshold', 0.85);
+    // FIX: Use explicit Image mode for runtime template matching
+    saveProp('matchMode', 'image');
+    saveProp('matchThreshold', 0.75);
+    saveProp('allowRawCoordsFallback', Boolean(document.getElementById('pe-mtap-fallback-raw')?.checked));
     saveProp('waitTimeout', 30000);
     saveProp('retryInterval', 1000);
     
@@ -1891,7 +1915,7 @@ function saveScreenPickerResult(result) {
     
     // Show preview if available
     const preview = document.getElementById('pe-mtap-template-preview');
-    if (preview) {
+    if (preview && dataUrl) {
       preview.src = dataUrl;
       preview.style.display = 'block';
     }
@@ -2301,11 +2325,18 @@ function showScreenPickerModal({ mode, imageSrc, deviceSize, deviceId }) {
     if (mode === 'text') return;
     const p = clientToDeviceAndCss(event.clientX, event.clientY);
     if (_pickerMode === 'coordinate') {
-      // set coordinate immediately
+      // FIX: use explicit element mode for Mobile Tap image capture
       _pickerResult.x = p.devX;
       _pickerResult.y = p.devY;
       updateStatusText(`Dipilih: X:${p.devX} Y:${p.devY}`);
-      saveScreenPickerResult({ mode:'point', x:p.devX, y:p.devY });
+      saveScreenPickerResult({
+        mode: mode === 'element' ? 'element' : 'point',
+        x: p.devX,
+        y: p.devY,
+        imageBase64: _pickerScreenBase64,
+        captureScreenWidth: deviceSize.width,
+        captureScreenHeight: deviceSize.height
+      });
       modal.remove();
       return;
     }
@@ -3817,35 +3848,63 @@ function findXmlMatchElement(xmlString, selector) {
   }
 
   const allNodes = Array.from(doc.querySelectorAll('node'));
-
   const normalize = (value) => String(value || '').trim();
+  const lower = (value) => String(value || '').trim().toLowerCase();
+
   const resourceId = normalize(selector.resourceId);
   const textToFind = normalize(selector.textToFind);
   const contentDesc = normalize(selector.contentDesc);
   const xpath = normalize(selector.xpath);
 
+  if (xpath) {
+    const xpathMatches = allNodes.filter((node) => buildXmlNodePath(node) === xpath);
+    if (xpathMatches.length > 0) {
+      return { node: xpathMatches[xpathMatches.length - 1], strategy: 'xpath', value: xpath };
+    }
+  }
+
+  const textToFindLower = textToFind.toLowerCase();
+  const contentDescLower = contentDesc.toLowerCase();
+
+  function matchesCombined(node) {
+    if (resourceId && normalize(node.getAttribute('resource-id')) !== resourceId) return false;
+    if (textToFind) {
+      const nodeText = lower(node.getAttribute('text'));
+      if (!(nodeText === textToFindLower || nodeText.includes(textToFindLower))) return false;
+    }
+    if (contentDesc) {
+      const nodeDesc = lower(node.getAttribute('content-desc'));
+      if (!(nodeDesc === contentDescLower || nodeDesc.includes(contentDescLower))) return false;
+    }
+    return true;
+  }
+
+  if (resourceId || textToFind || contentDesc) {
+    const combinedMatches = allNodes.filter(matchesCombined);
+    if (combinedMatches.length > 0) {
+      const node = combinedMatches[combinedMatches.length - 1];
+      const used = [resourceId && 'resourceId', textToFind && 'textToFind', contentDesc && 'contentDesc'].filter(Boolean).join('+');
+      return { node, strategy: `combined(${used})`, value: used };
+    }
+  }
+
   if (resourceId) {
-    const matches = allNodes.filter((node) => normalize(node.getAttribute('resource-id')) === resourceId);
-    if (matches.length > 0) return { node: matches[matches.length - 1], strategy: 'resourceId', value: resourceId };
+    const resourceMatches = allNodes.filter((node) => normalize(node.getAttribute('resource-id')) === resourceId);
+    if (resourceMatches.length > 0) return { node: resourceMatches[resourceMatches.length - 1], strategy: 'resourceId', value: resourceId };
   }
 
   if (textToFind) {
-    let exact = allNodes.filter((node) => normalize(node.getAttribute('text')).toLowerCase() === textToFind.toLowerCase());
+    const exact = allNodes.filter((node) => lower(node.getAttribute('text')) === textToFindLower);
     if (exact.length > 0) return { node: exact[exact.length - 1], strategy: 'text_exact', value: textToFind };
-    let partial = allNodes.filter((node) => normalize(node.getAttribute('text')).toLowerCase().includes(textToFind.toLowerCase()));
+    const partial = allNodes.filter((node) => lower(node.getAttribute('text')).includes(textToFindLower));
     if (partial.length > 0) return { node: partial[partial.length - 1], strategy: 'text_partial', value: textToFind };
   }
 
   if (contentDesc) {
-    let exact = allNodes.filter((node) => normalize(node.getAttribute('content-desc')).toLowerCase() === contentDesc.toLowerCase());
+    const exact = allNodes.filter((node) => lower(node.getAttribute('content-desc')) === contentDescLower);
     if (exact.length > 0) return { node: exact[exact.length - 1], strategy: 'contentDesc_exact', value: contentDesc };
-    let partial = allNodes.filter((node) => normalize(node.getAttribute('content-desc')).toLowerCase().includes(contentDesc.toLowerCase()));
+    const partial = allNodes.filter((node) => lower(node.getAttribute('content-desc')).includes(contentDescLower));
     if (partial.length > 0) return { node: partial[partial.length - 1], strategy: 'contentDesc_partial', value: contentDesc };
-  }
-
-  if (xpath) {
-    const matches = allNodes.filter((node) => buildXmlNodePath(node) === xpath);
-    if (matches.length > 0) return { node: matches[matches.length - 1], strategy: 'xpath', value: xpath };
   }
 
   return null;

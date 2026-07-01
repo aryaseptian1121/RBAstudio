@@ -7,6 +7,42 @@ const Jimp = require('jimp');
 const { exec } = require('child_process');
 const adbManager = require('./adbManager');
 
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function buildImageSearchRegion({
+  captureCoordX = 0,
+  captureCoordY = 0,
+  captureScreenWidth = 0,
+  captureScreenHeight = 0,
+  liveScreenWidth = 0,
+  liveScreenHeight = 0,
+  templateWidth = 0,
+  templateHeight = 0,
+  paddingRatio = 0.2
+}) {
+  const liveW = Math.max(1, liveScreenWidth || captureScreenWidth || 1);
+  const liveH = Math.max(1, liveScreenHeight || captureScreenHeight || 1);
+  const captureW = Math.max(1, captureScreenWidth || liveW);
+  const captureH = Math.max(1, captureScreenHeight || liveH);
+  const scaleX = liveW / captureW;
+  const scaleY = liveH / captureH;
+  const expectedX = Math.round((Number(captureCoordX) || 0) * scaleX);
+  const expectedY = Math.round((Number(captureCoordY) || 0) * scaleY);
+  const baseSize = Math.max(120, Math.round(Math.min(liveW, liveH) * 0.4));
+  const searchWidth = Math.max(baseSize, (templateWidth || 80) + Math.round(Math.min(liveW, liveH) * paddingRatio));
+  const searchHeight = Math.max(baseSize, (templateHeight || 80) + Math.round(Math.min(liveW, liveH) * paddingRatio));
+  const x = clamp(expectedX - Math.round(searchWidth / 2), 0, Math.max(0, liveW - searchWidth));
+  const y = clamp(expectedY - Math.round(searchHeight / 2), 0, Math.max(0, liveH - searchHeight));
+  return {
+    x,
+    y,
+    width: Math.min(liveW - x, searchWidth),
+    height: Math.min(liveH - y, searchHeight)
+  };
+}
+
 /**
  * Find image template in screen screenshot
  */
@@ -258,6 +294,7 @@ function readNodeData(node) {
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 
 module.exports = {
+  buildImageSearchRegion,
   findImageInScreen,
   findTextViaUIAutomator,
   waitForElement,

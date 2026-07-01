@@ -402,6 +402,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .prop-group{margin-bottom:16px;}
 .prop-label{font-size:10px;font-weight:700;color:var(--dim2);letter-spacing:.06em;margin-bottom:5px;display:block;text-transform:uppercase;}
 .prop-input{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px;outline:none;transition:.15s;}
+.prop-input.prop-warning-device{border-color:#f59e0b!important;box-shadow:0 0 0 3px rgba(245,158,11,0.18);}
 .prop-input:focus{border-color:var(--accent);background:rgba(59,130,246,0.06);}
 .prop-select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0l6 8 6-8z' fill='%2364748b'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;}
 .prop-sep{height:1px;background:var(--border2);margin:14px 0;}
@@ -832,7 +833,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <!-- MOBILE -->
               <div class="prop-group" id="pg-mobile" style="display:none;">
                 <label class="prop-label">Device ID (kosong = perangkat aktif)</label>
-                <input class="prop-input" id="pe-device-id" placeholder="emulator-5554" oninput="saveProp('deviceId',this.value)">
+                <input class="prop-input" id="pe-device-id" placeholder="Kosong = perangkat aktif" oninput="saveProp('deviceId',this.value)">
                 <div class="prop-row2" style="margin-top:8px;">
                   <div>
                     <label class="prop-label">X</label>

@@ -6,6 +6,7 @@
   const { waitForText, destroyOcrWorker } = require('./ocrReader');
   const uiDumpService = require('./src/main/services/uiDumpService');
   const { ExcelLoopEngine, setBrowserManager: setExcelLoopBrowserManager } = require('./src/services/ExcelLoopEngine');
+  const { buildImageSearchRegion } = require('./utils/imageMatcher');
 
   let isRunning = false;
   let currentSender = null;
@@ -236,29 +237,49 @@
     const textToFind = String(selector.textToFind || '').trim();
     const contentDesc = String(selector.contentDesc || '').trim();
     const xpath = String(selector.xpath || '').trim();
-
-    if (resourceId) {
-      const matches = collectNodesByPredicate(root, node => String(node['resource-id'] || '').trim() === resourceId);
-      return selectDeepestNode(matches);
-    }
-
-    if (textToFind) {
-      const exactMatches = collectNodesByPredicate(root, node => String(node.text || '').trim().toLowerCase() === textToFind.toLowerCase());
-      if (exactMatches.length > 0) return selectDeepestNode(exactMatches);
-      const partialMatches = collectNodesByPredicate(root, node => String(node.text || '').toLowerCase().includes(textToFind.toLowerCase()));
-      if (partialMatches.length > 0) return selectDeepestNode(partialMatches);
-    }
-
-    if (contentDesc) {
-      const exactDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').trim().toLowerCase() === contentDesc.toLowerCase());
-      if (exactDesc.length > 0) return selectDeepestNode(exactDesc);
-      const partialDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').toLowerCase().includes(contentDesc.toLowerCase()));
-      if (partialDesc.length > 0) return selectDeepestNode(partialDesc);
-    }
+    const normalizedText = textToFind.toLowerCase();
+    const normalizedDesc = contentDesc.toLowerCase();
 
     if (xpath) {
       const pathMatches = collectNodesByPredicate(root, node => String(node.xpath || '').trim() === xpath);
       if (pathMatches.length > 0) return selectDeepestNode(pathMatches);
+    }
+
+    function matchesCombined(node) {
+      if (resourceId && String(node['resource-id'] || '').trim() !== resourceId) return false;
+      if (textToFind) {
+        const nodeText = String(node.text || '').trim().toLowerCase();
+        if (!(nodeText === normalizedText || nodeText.includes(normalizedText))) return false;
+      }
+      if (contentDesc) {
+        const nodeDesc = String(node['content-desc'] || '').trim().toLowerCase();
+        if (!(nodeDesc === normalizedDesc || nodeDesc.includes(normalizedDesc))) return false;
+      }
+      return true;
+    }
+
+    if (resourceId || textToFind || contentDesc) {
+      const combinedMatches = collectNodesByPredicate(root, matchesCombined);
+      if (combinedMatches.length > 0) return selectDeepestNode(combinedMatches);
+    }
+
+    if (resourceId) {
+      const matches = collectNodesByPredicate(root, node => String(node['resource-id'] || '').trim() === resourceId);
+      if (matches.length > 0) return selectDeepestNode(matches);
+    }
+
+    if (textToFind) {
+      const exactMatches = collectNodesByPredicate(root, node => String(node.text || '').trim().toLowerCase() === normalizedText);
+      if (exactMatches.length > 0) return selectDeepestNode(exactMatches);
+      const partialMatches = collectNodesByPredicate(root, node => String(node.text || '').toLowerCase().includes(normalizedText));
+      if (partialMatches.length > 0) return selectDeepestNode(partialMatches);
+    }
+
+    if (contentDesc) {
+      const exactDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').trim().toLowerCase() === normalizedDesc);
+      if (exactDesc.length > 0) return selectDeepestNode(exactDesc);
+      const partialDesc = collectNodesByPredicate(root, node => String(node['content-desc'] || '').toLowerCase().includes(normalizedDesc));
+      if (partialDesc.length > 0) return selectDeepestNode(partialDesc);
     }
 
     return null;
@@ -1029,14 +1050,42 @@
             
             // Try image template matching
             if ((resolvedMode === 'IMAGE' || resolvedMode === 'IMAGE_OR_TEXT') && templateImageBase64) {
-              const match = await findTemplateOnImage(currentScreen.image, await loadTemplateImage(templateImageBase64), matchThreshold, 4);
-              if (match.found) {
-                foundLocation = {
-                  centerX: match.centerX,
-                  centerY: match.centerY,
-                  confidence: match.confidence,
-                  method: 'image'
-                };
+              const templateImage = await loadTemplateImage(templateImageBase64);
+              if (templateImage) {
+                const captureX = Number(data.captureCoordX ?? coordinateX ?? 0);
+                const captureY = Number(data.captureCoordY ?? coordinateY ?? 0);
+                const captureScreenWidth = Number(data.captureScreenWidth || 0);
+                const captureScreenHeight = Number(data.captureScreenHeight || 0);
+                const roi = buildImageSearchRegion({
+                  captureCoordX: captureX,
+                  captureCoordY: captureY,
+                  captureScreenWidth,
+                  captureScreenHeight,
+                  liveScreenWidth: currentScreen.image.bitmap.width,
+                  liveScreenHeight: currentScreen.image.bitmap.height,
+                  templateWidth: templateImage.bitmap.width,
+                  templateHeight: templateImage.bitmap.height
+                });
+
+                sendLog(sender, 'info', `[Mobile Tap] Image search ROI: x=${roi.x}, y=${roi.y}, w=${roi.width}, h=${roi.height} (threshold ${(matchThreshold * 100).toFixed(1)}%)`);
+                const roiImage = isValidRegion(roi)
+                  ? await getScreenImage(device, true, roi)
+                  : { success: true, image: currentScreen.image };
+
+                if (roiImage.success) {
+                  const match = await findTemplateOnImage(roiImage.image, templateImage, matchThreshold, 4);
+                  if (match.found) {
+                    foundLocation = {
+                      centerX: roi.x + match.centerX,
+                      centerY: roi.y + match.centerY,
+                      confidence: match.confidence,
+                      method: 'image',
+                      roi
+                    };
+                  } else {
+                    sendLog(sender, 'info', `[Mobile Tap] Image template not found in ROI (confidence ${(match.confidence * 100).toFixed(1)}%)`);
+                  }
+                }
               }
             }
             
@@ -1087,11 +1136,14 @@
           }
         }
         
-        // Timeout reached - fallback to saved coordinates
+        // Timeout reached - fallback to saved coordinates only when explicitly allowed
         const finalElapsed = Date.now() - startTime;
         sendLog(sender, 'warn', `⏳ Element not found after ${finalElapsed}ms timeout (${attempt} attempts)`);
+        const shouldFallbackToRaw = (resolvedMode === 'IMAGE' || resolvedMode === 'IMAGE_OR_TEXT')
+          ? (data.allowRawCoordsFallback !== false)
+          : true;
         
-        if (coordinateX != null && coordinateY != null && coordinateX !== 0 && coordinateY !== 0) {
+        if (shouldFallbackToRaw && coordinateX != null && coordinateY != null && coordinateX !== 0 && coordinateY !== 0) {
           sendLog(sender, 'info', `⚠️ Fallback to saved coordinates (${coordinateX},${coordinateY})`);
           const fallbackResult = await adbExec(device, `shell input tap ${coordinateX} ${coordinateY}`);
           invalidateScreenCache(device);
@@ -1101,6 +1153,10 @@
           }
           sendLog(sender, 'success', `Tap at fallback coordinates ${coordinateX},${coordinateY}`);
           return { success: true, method: 'coordinate_fallback', x: coordinateX, y: coordinateY };
+        }
+        
+        if ((resolvedMode === 'IMAGE' || resolvedMode === 'IMAGE_OR_TEXT') && templateImageBase64) {
+          throw new Error(`Image template not found, confidence below threshold (${(matchThreshold * 100).toFixed(1)}%)`);
         }
         
         throw new Error(`Element not found: timeout after ${waitTimeout}ms and no valid fallback coordinates`);

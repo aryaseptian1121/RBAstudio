@@ -520,10 +520,19 @@ function selectCurrentNode() {
 }
 
 function attachQuickViewToButton(buttonId, deviceIdInputId) {
+  function resolveButtonDeviceId() {
+    const input = document.getElementById(deviceIdInputId);
+    const inputDevice = input?.value?.trim();
+    if (inputDevice) return inputDevice;
+    const selector = document.getElementById('device-selector');
+    const activeDevice = selector?.value || '';
+    return activeDevice !== 'No ADB Device' ? activeDevice : '';
+  }
+
   const button = document.getElementById(buttonId);
   if (!button) return;
   button.addEventListener('click', () => {
-    const deviceId = document.getElementById(deviceIdInputId)?.value || '';
+    const deviceId = resolveButtonDeviceId();
     openQuickViewPanel(deviceId);
   });
 }
