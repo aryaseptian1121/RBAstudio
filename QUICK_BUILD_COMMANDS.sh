@@ -7,7 +7,7 @@
 # ========================================
 
 # cd to project
-cd "/Users/mac/Documents/project RBA"
+cd "~/dev/rba-studio-pro"
 
 # Verify Node.js installed
 node --version    # Should be v16+

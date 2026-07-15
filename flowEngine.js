@@ -538,12 +538,19 @@
   }
 
   // NEW: Cleanup flow resources and state
+  function clearRuntimeCaches() {
+    screenshotCache.device = null;
+    screenshotCache.timestamp = 0;
+    screenshotCache.image = null;
+    lastFoundPositions.clear();
+  }
+
   function cleanupFlow() {
     isRunning = false;
     currentSender = null;
     screenVerifier = null;
-    destroyOcrWorker() // NEW
-    // NEW: Clear reference cache to free memory on app restart
+    destroyOcrWorker();
+    clearRuntimeCaches();
     const ScreenVerifier = require('./screenVerifier');
     ScreenVerifier.clearRefCache();
   }
@@ -1321,4 +1328,4 @@
     cleanupFlow();
   }
 
-  module.exports = { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager, adbExec, findTemplate, captureScreen, findTextOnScreen };
+  module.exports = { runFlow, stopFlow, setAdbExecutor, cleanupFlow, clearRuntimeCaches, setExcelLoopBrowserManager, adbExec, findTemplate, captureScreen, findTextOnScreen };

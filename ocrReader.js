@@ -108,4 +108,9 @@ async function destroyOcrWorker() { // NEW
   ocrWorker = null; // NEW
 }
 
-module.exports = { waitForText, destroyOcrWorker }; // NEW
+function resetOcrState() {
+  waitActive = false;
+  ocrWorker = null;
+}
+
+module.exports = { waitForText, destroyOcrWorker, resetOcrState }; // NEW

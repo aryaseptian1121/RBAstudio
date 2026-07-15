@@ -7,6 +7,53 @@ const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
+// NEW: set custom Puppeteer cache dir relative to app resources,
+// agar tidak bergantung pada os.homedir() milik user device lain
+const puppeteerCacheDir = app.isPackaged
+  ? path.join(process.resourcesPath, 'puppeteer-cache')
+  : path.join(__dirname, '.cache', 'puppeteer');
+process.env.PUPPETEER_CACHE_DIR = puppeteerCacheDir;
+if (!fs.existsSync(puppeteerCacheDir)) {
+  fs.mkdirSync(puppeteerCacheDir, { recursive: true });
+}
+
+function resolveChromeExecutable() {
+  // FIX: resolve executablePath eksplisit agar tidak bergantung pada
+  // default cache resolution Puppeteer yang user-specific
+  try {
+    const puppeteer = require('puppeteer');
+    const resolvedPath = puppeteer.executablePath();
+    if (resolvedPath && fs.existsSync(resolvedPath)) {
+      return resolvedPath;
+    }
+  } catch (err) {
+    console.warn('[WA] Puppeteer executablePath lookup failed:', err.message);
+  }
+
+  // FIX: fallback ke Chrome/Edge yang terinstall di sistem
+  const candidates = [];
+  if (process.platform === 'win32') {
+    candidates.push('C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe');
+    candidates.push('C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe');
+    candidates.push('C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe');
+  } else if (process.platform === 'darwin') {
+    candidates.push('/Applications/Google Chrome.app/Contents/MacOS/Google Chrome');
+    candidates.push('/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge');
+  } else {
+    candidates.push('/usr/bin/google-chrome');
+    candidates.push('/usr/bin/chromium');
+    candidates.push('/usr/bin/chromium-browser');
+    candidates.push('/usr/bin/microsoft-edge');
+  }
+
+  const found = candidates.find((candidate) => candidate && fs.existsSync(candidate));
+  if (!found) {
+    throw new Error('Chrome/Edge tidak ditemukan di sistem. Install Chrome atau jalankan setup ulang.');
+  }
+
+  return found;
+}
+
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
 const XLSX = require('xlsx');
@@ -19,6 +66,7 @@ const ElectronScreenshotProvider = require('./src/screenshotProviders/electronPr
 const AdbScreenshotProvider = require('./src/screenshotProviders/adbProvider');
 const { buildSmartTargetForClick } = require('./src/smartTargetCapture');
 const uiDumpService = require('./src/main/services/uiDumpService');
+const { clearRuntimeCache } = require('./src/services/cacheManager');
 
 // NEW: Get correct base path for both dev and production
 function getBasePath() {
@@ -370,7 +418,7 @@ app.commandLine.appendSwitch('disable-background-timer-throttling'); // CHANGED
 app.commandLine.appendSwitch('disable-renderer-backgrounding'); // CHANGED
 app.commandLine.appendSwitch('disable-backgrounding-occluded-windows'); // CHANGED
 
-const { runFlow, stopFlow, setAdbExecutor, cleanupFlow, setExcelLoopBrowserManager, adbExec, findTemplate, captureScreen, findTextOnScreen } = require('./flowEngine'); // CHANGED
+const { runFlow, stopFlow, setAdbExecutor, cleanupFlow, clearRuntimeCaches, setExcelLoopBrowserManager, adbExec, findTemplate, captureScreen, findTextOnScreen } = require('./flowEngine'); // CHANGED
 setAdbExecutor(pool.adb.bind(pool)); // CHANGED
 setExcelLoopBrowserManager(pool.browserManager?.bind(pool));
 
@@ -423,6 +471,18 @@ ipcMain.handle('fr:stop', async () => {
 let currentExcelLoopEngine = null;
 let excelLoopState = { running: false, paused: false, stopped: false };
 let waClient = null;
+const waSessionPath = path.join(app.getPath('userData'), 'wa-session');
+
+// Ensure session directory exists
+if (!fs.existsSync(waSessionPath)) {
+  try {
+    fs.mkdirSync(waSessionPath, { recursive: true });
+    console.log('[WA] Session directory created:', waSessionPath);
+  } catch (e) {
+    console.warn('[WA] Failed to create session directory:', e.message);
+  }
+}
+
 let waEngine = {
   running: false,
   paused: false,
@@ -693,9 +753,16 @@ ipcMain.handle('macro-get-events', () => ({ ok: true, events: macroEngine.events
 ipcMain.handle('macro-play', async (event, { events = [], speed = 1.0, loops = 1 }) => {
   let robot;
   try {
+    // FIX: defensive require dengan logging path untuk debugging cross-machine
     robot = require('robotjs');
+    const expectedUnpackedPath = path.join(process.resourcesPath || '', 'app.asar.unpacked', 'node_modules', 'robotjs');
+    console.log('[MacroPlayback] robotjs loaded successfully from:', robot && robot.__dirname ? robot.__dirname : 'unknown');
+    console.log('[MacroPlayback] Expected unpacked path:', expectedUnpackedPath);
   } catch (e) {
     const detail = e && (e.message || e.code) ? `${e.message} (${e.code || 'load-failed'})` : String(e);
+    const expectedUnpackedPath = path.join(process.resourcesPath || '', 'app.asar.unpacked', 'node_modules', 'robotjs');
+    console.error('[MacroPlayback] Gagal load robotjs. Kemungkinan asar belum di-unpack atau ABI mismatch.', e);
+    console.error('[MacroPlayback] Expected unpacked path:', expectedUnpackedPath);
     return { ok: false, message: `robotjs tidak tersedia atau gagal dimuat: ${detail}` };
   }
 
@@ -1711,6 +1778,90 @@ ipcMain.on('stop-flow', () => { // CHANGED
     stopFlow();
 });
 
+// ─────────────────────────────────────────
+// DEPENDENCY VALIDATION
+// ─────────────────────────────────────────
+
+function validateCriticalDependencies() {
+  console.log('[STARTUP] Validating critical dependencies...');
+  
+  const issues = [];
+  
+  // Check Macro Recorder dependencies
+  try {
+    require('robotjs');
+    console.log('[STARTUP] ✅ robotjs loaded');
+  } catch (e) {
+    issues.push({
+      feature: 'Macro Recorder',
+      module: 'robotjs',
+      error: e.message,
+      severity: 'error'
+    });
+  }
+  
+  try {
+    require('uiohook-napi');
+    console.log('[STARTUP] ✅ uiohook-napi loaded');
+  } catch (e) {
+    issues.push({
+      feature: 'Macro Recorder',
+      module: 'uiohook-napi',
+      error: e.message,
+      severity: 'error'
+    });
+  }
+  
+  // Check WhatsApp Bot dependencies
+  try {
+    require('whatsapp-web.js');
+    console.log('[STARTUP] ✅ whatsapp-web.js loaded');
+  } catch (e) {
+    issues.push({
+      feature: 'WhatsApp Bot',
+      module: 'whatsapp-web.js',
+      error: e.message,
+      severity: 'warning'
+    });
+  }
+  
+  // Check Macro Storage
+  try {
+    const macroDir = path.join(app.getPath('userData'), 'macros');
+    if (!fs.existsSync(macroDir)) {
+      fs.mkdirSync(macroDir, { recursive: true });
+      console.log('[STARTUP] ✅ Macro storage directory created');
+    } else {
+      console.log('[STARTUP] ✅ Macro storage directory exists');
+    }
+  } catch (e) {
+    issues.push({
+      feature: 'Macro Storage',
+      module: 'filesystem',
+      error: e.message,
+      severity: 'warning'
+    });
+  }
+  
+  if (issues.length > 0) {
+    console.warn('[STARTUP] ⚠️ Dependency issues detected:');
+    issues.forEach(issue => {
+      console.warn(`  [${issue.severity.toUpperCase()}] ${issue.feature}: ${issue.module}`);
+      console.warn(`    └─ ${issue.error}`);
+    });
+    
+    // Send to renderer
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('startup-issues', { issues });
+    }
+  } else {
+    console.log('[STARTUP] ✅ All critical dependencies validated successfully');
+  }
+  
+  return issues;
+}
+
+
 function createWindow() {
     mainWindow = new BrowserWindow({
         width:1600, height:1020, minWidth:1200, minHeight:700,
@@ -1724,6 +1875,31 @@ function createWindow() {
         },
         backgroundColor:'#080d17'
     });
+    
+    // CHECK MACOS ACCESSIBILITY PERMISSION
+    if (process.platform === 'darwin') {
+        const isAccessibilityGranted = systemPreferences.isTrustedAccessibilityClient(false);
+        
+        if (!isAccessibilityGranted) {
+            console.log('[STARTUP] macOS Accessibility permission not granted, requesting...');
+            
+            // Show info dialog
+            dialog.showMessageBox(mainWindow, {
+                type: 'info',
+                title: 'Accessibility Permission Required',
+                message: 'RBA Studio Pro needs Accessibility permission to use Macro Recorder.',
+                detail: 'This will open System Preferences. Please:\n\n1. Find "RBA Studio Pro" in the list\n2. Check the checkbox next to it\n3. Close System Preferences\n4. Restart RBA Studio Pro\n\nThis is required for keyboard & mouse recording.',
+                buttons: ['Open System Preferences', 'Remind Me Later']
+            }).then(result => {
+                if (result.response === 0) {
+                    // Request permission and open settings
+                    systemPreferences.isTrustedAccessibilityClient(true);
+                    // Open System Preferences directly to Accessibility
+                    exec('open "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility"');
+                }
+            });
+        }
+    }
     
     mainWindow.loadFile(path.join(__dirname, 'login.html'));
 }
@@ -1750,6 +1926,40 @@ ipcMain.handle('ui:findNodeAtCoordinate', async (event, { xmlString, x, y }) => 
     return { success: true, node };
   } catch (err) {
     return { success: false, error: err.message || String(err) };
+  }
+});
+
+ipcMain.handle('clear-runtime-cache', async () => {
+  try {
+    const result = await clearRuntimeCache({
+      referencesDir: path.join(app.getPath('userData'), 'reference_images'),
+      outputDir: path.join(app.getPath('userData'), 'output'),
+      tempDir: app.getPath('temp')
+    });
+
+    try {
+      clearRuntimeCaches();
+    } catch (cacheError) {
+      console.warn('[Cache] failed to clear flow runtime cache:', cacheError.message || cacheError);
+    }
+
+    try {
+      const ScreenVerifier = require('./screenVerifier');
+      ScreenVerifier.clearRefCache();
+    } catch (cacheError) {
+      console.warn('[Cache] failed to clear screen verifier cache:', cacheError.message || cacheError);
+    }
+
+    try {
+      const { resetOcrState } = require('./ocrReader');
+      resetOcrState();
+    } catch (cacheError) {
+      console.warn('[Cache] failed to reset OCR state:', cacheError.message || cacheError);
+    }
+
+    return { ok: true, ...result };
+  } catch (error) {
+    return { ok: false, error: error.message || String(error) };
   }
 });
 
@@ -1853,13 +2063,17 @@ ipcMain.handle('wa-connect', async (event) => {
 
     waClient = new Client({
       authStrategy: new LocalAuth({
-        dataPath: path.join(app.getPath('userData'), 'wa-session')
+        clientId: 'rba-studio-pro',
+        dataPath: waSessionPath
       }),
       puppeteer: {
+        executablePath: resolveChromeExecutable(),
         headless: true,
         args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
       }
     });
+
+    console.log('[WA] Client created with session persistence at:', waSessionPath);
 
     waClient.on('qr', async (qr) => {
       try {
@@ -2413,6 +2627,7 @@ app.whenReady().then(() => {
         });
     }
     createWindow();
+    validateCriticalDependencies();
 });
 app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();

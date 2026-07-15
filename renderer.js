@@ -700,9 +700,31 @@ function redoAction() {
 let excelLoopPanel = null;
 let whatsappBotPanel = null;
 let flowReturPanel = null;
+let activeViewId = 'dashboard';
+
+function setViewVisibility(view, isActive) {
+  if (!view) return;
+  view.classList.toggle('active', isActive);
+  view.classList.toggle('page-entering', isActive);
+  view.classList.toggle('page-exiting', false);
+  view.style.display = isActive ? 'flex' : 'none';
+  view.style.visibility = isActive ? 'visible' : 'hidden';
+  view.style.pointerEvents = isActive ? 'auto' : 'none';
+}
+
+function renderViewError(targetEl, title, message, detail = '') {
+  if (!targetEl) return;
+  const detailMarkup = detail ? `<div style="margin-top:12px;padding:12px;border-radius:8px;background:rgba(248,113,113,0.12);color:#fecaca;font-size:12px;white-space:pre-wrap;">${detail}</div>` : '';
+  targetEl.innerHTML = `
+    <div style="padding:24px;color:#fca5a5;display:flex;flex-direction:column;gap:10px;align-items:flex-start;">
+      <div style="font-size:16px;font-weight:700;">${title}</div>
+      <div style="font-size:13px;line-height:1.6;color:#e2e8f0;">${message}</div>
+      ${detailMarkup}
+    </div>
+  `;
+}
 
 function switchView(id) {
-  const current = document.querySelector('.view.active');
   const target = document.getElementById(id);
   if (!target) return;
 
@@ -710,22 +732,14 @@ function switchView(id) {
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
   if (navMap[id]) document.getElementById(navMap[id]).classList.add('active');
 
-  const showTarget = () => {
-    target.classList.add('active', 'page-entering');
-    target.addEventListener('animationend', () => target.classList.remove('page-entering'), { once: true });
-  };
+  document.querySelectorAll('.view').forEach(view => {
+    if (view !== target) {
+      setViewVisibility(view, false);
+    }
+  });
 
-  if (current && current !== target) {
-    current.classList.add('page-exiting');
-    current.addEventListener('animationend', () => {
-      current.classList.remove('active', 'page-exiting');
-      showTarget();
-    }, { once: true });
-  } else if (!current) {
-    showTarget();
-  } else if (current === target) {
-    target.classList.add('active');
-  }
+  setViewVisibility(target, true);
+  activeViewId = id;
 
   if (id === 'excel-loop' && !excelLoopPanel) {
     const mountEl = document.getElementById('excel-loop');
@@ -733,26 +747,17 @@ function switchView(id) {
       if (typeof initExcelLoopPanel !== 'function') {
         console.error('Excel Loop init function unavailable. Load error:', excelLoopLoadError);
         
-        // Build detailed error message
         let errorDetail = 'Module gagal dimuat';
         if (excelLoopLoadError) {
           errorDetail = excelLoopLoadError.message || String(excelLoopLoadError);
         }
         
-        const errorHTML = `
-          <div style="padding:24px; color:#f87171; fontFamily:monospace; background:#1f2937; borderRadius:8px; margin:16px;">
-            <h3 style="color:#fca5a5; marginBottom:12px; fontSize:16px;">Excel Loop gagal dimuat</h3>
-            <div style="background:#0f1318; padding:16px; borderRadius:6px; fontSize:13px; marginBottom:12px; border-left:3px solid #f87171;">
-              <div><strong>Error:</strong> ${errorDetail}</div>
-              ${excelLoopLoadError && excelLoopLoadError.stack ? `
-                <pre style="marginTop:12px; fontSize:11px; color:#9ca3af; whiteSpace:pre-wrap; overflowX:auto; maxHeight:200px;">
-${excelLoopLoadError.stack.split('\n').slice(0, 10).join('\n')}</pre>
-              ` : ''}
-            </div>
-            <p style="fontSize:12px; color:#cbd5e1;">Periksa developer console (F12) untuk detail lengkap.</p>
-          </div>
-        `;
-        mountEl.innerHTML = errorHTML;
+        renderViewError(
+          mountEl,
+          'Excel Loop gagal dimuat',
+          'Panel tidak bisa dimuat karena modul utama gagal dieksekusi.',
+          `${errorDetail}${excelLoopLoadError && excelLoopLoadError.stack ? `\n\n${excelLoopLoadError.stack.split('\n').slice(0, 10).join('\n')}` : ''}`
+        );
         return;
       }
       try {
@@ -763,21 +768,14 @@ ${excelLoopLoadError.stack.split('\n').slice(0, 10).join('\n')}</pre>
         const errorDetail = e && e.message ? e.message : String(e);
         const errorStack = (e && e.stack) ? e.stack.split('\n').slice(0, 8).join('\n') : '';
         
-        const errorHTML = `
-          <div style="padding:24px; color:#f87171;">
-            <h3 style="color:#fca5a5; marginBottom:12px; fontSize:16px;">Excel Loop gagal di-render</h3>
-            <div style="background:#0f1318; padding:16px; borderRadius:6px; fontSize:13px; marginBottom:16px; border-left:3px solid #f87171;">
-              <div><strong>Error:</strong> ${errorDetail}</div>
-              ${errorStack ? `
-                <pre style="marginTop:12px; fontSize:11px; color:#9ca3af; whiteSpace:pre-wrap; overflowX:auto; maxHeight:200px;">
-${errorStack}</pre>
-              ` : ''}
-            </div>
-            <button id="excelloop-retry" style="padding:8px 16px; background:#f87171; color:#1f2937; border:none; borderRadius:4px; cursor:pointer; fontSize:13px; fontWeight:bold;">Coba Lagi</button>
-          </div>
-        `;
+        renderViewError(
+          mountEl,
+          'Excel Loop gagal di-render',
+          'Panel mengalami error saat inisialisasi.',
+          `${errorDetail}${errorStack ? `\n\n${errorStack}` : ''}`
+        );
         
-        mountEl.innerHTML = errorHTML;
+        mountEl.insertAdjacentHTML('beforeend', `<button id="excelloop-retry" style="margin-top:12px;padding:8px 16px;background:#f87171;color:#1f2937;border:none;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Coba Lagi</button>`);
         setTimeout(() => {
           const btn = document.getElementById('excelloop-retry');
           if (btn) btn.addEventListener('click', function() {
@@ -786,7 +784,7 @@ ${errorStack}</pre>
               excelLoopPanel = initExcelLoopPanel(mountEl); 
             } catch (err) { 
               console.error('Retry failed:', err); 
-              mountEl.innerHTML = '<div style="padding:16px; color:#f87171; fontSize:13px;">Retry gagal: '+(err && err.message ? err.message : String(err))+'</div>'; 
+              renderViewError(mountEl, 'Retry gagal', 'Panel gagal diinisialisasi setelah percobaan ulang.', err && err.message ? err.message : String(err));
             }
           });
         }, 50);
@@ -801,7 +799,7 @@ ${errorStack}</pre>
         whatsappBotPanel = initWhatsAppBot(mountEl);
       } catch (error) {
         console.error('[renderer] Failed to initialize WhatsApp Bot:', error);
-        mountEl.innerHTML = `<div style="padding:24px; color:#fca5a5;">Gagal memuat halaman WhatsApp Bot.</div>`;
+        renderViewError(mountEl, 'WhatsApp Bot gagal dimuat', 'Panel tidak bisa diinisialisasi.', error && error.message ? error.message : String(error));
       }
     }
   }
@@ -5091,6 +5089,22 @@ function saveAdbPath() {
   ipcRenderer.invoke('save-settings', prefs);
   addLog('ADB path saved: '+prefs.adbPath, 'info');
 }
+async function clearRuntimeCacheFromUi() {
+  const confirmed = window.confirm('Bersihkan data cache sementara, screenshot, dan file temp yang tersisa?');
+  if (!confirmed) return;
+
+  try {
+    addLog('Membersihkan cache runtime...', 'info');
+    const result = await window.electronAPI?.clearRuntimeCache?.();
+    if (result?.ok) {
+      addLog(`Cache dibersihkan: ${result.deletedCount || 0} file dihapus.`, 'success');
+      return;
+    }
+    addLog('Gagal membersihkan cache: ' + (result?.error || 'unknown error'), 'error');
+  } catch (error) {
+    addLog('Gagal membersihkan cache: ' + (error?.message || error), 'error');
+  }
+}
 function setLang(l) { prefs.lang=l; ipcRenderer.invoke('save-settings',prefs); }
 function resetAllSettings() { if(confirm('Reset semua settings?')) { ipcRenderer.invoke('save-settings',{}); location.reload(); } }
 
@@ -5185,6 +5199,7 @@ window.addEventListener('keydown', e => {
   window.deleteProject = safeCall('deleteProject', deleteProject);
   window.showAdbInfo = safeCall('showAdbInfo', showAdbInfo);
   window.showTemplateModal = safeCall('showTemplateModal', showTemplateModal);
+  window.clearRuntimeCacheFromUi = safeCall('clearRuntimeCacheFromUi', clearRuntimeCacheFromUi);
 
   initQuickViewXml();
   document.addEventListener('quickview-select-element', handleQuickViewSelectElement);

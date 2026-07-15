@@ -10,9 +10,49 @@ let quickViewState = {
   screenshotMeta: { width: 0, height: 0, displayWidth: 0, displayHeight: 0 },
   xmlLineHandlersAttached: false,
   xpathToLineMap: {},  // Map xpath -> DOM line element
+  isLoading: false,
+  isOpen: false,
 };
 
 const quickViewElements = {};
+
+function resetQuickViewPanelState(elements = quickViewElements, state = quickViewState) {
+  if (elements.backdrop && elements.backdrop.parentNode) {
+    elements.backdrop.parentNode.removeChild(elements.backdrop);
+  }
+  if (elements.backdrop) {
+    elements.backdrop = null;
+  }
+  if (elements.xmlStatus) {
+    elements.xmlStatus.textContent = '';
+  }
+  if (elements.screenshotStatus) {
+    elements.screenshotStatus.textContent = '';
+  }
+  if (elements.xmlLines) {
+    elements.xmlLines.innerHTML = '';
+  }
+  if (elements.screenshotImg) {
+    elements.screenshotImg.src = '';
+  }
+  if (elements.selectBtn) {
+    elements.selectBtn.disabled = true;
+  }
+  if (elements.footerHint) {
+    elements.footerHint.textContent = '';
+  }
+  if (state) {
+    state.currentlySelectedNode = null;
+    state.currentXml = '';
+    state.currentTree = null;
+    state.currentDeviceId = '';
+    state.screenshotMeta = { width: 0, height: 0, displayWidth: 0, displayHeight: 0 };
+    state.xmlLineHandlersAttached = false;
+    state.xpathToLineMap = {};
+    state.isLoading = false;
+    state.isOpen = false;
+  }
+}
 
 function mountQuickViewPanel() {
   if (document.getElementById('quick-view-xml-backdrop')) return;
@@ -59,6 +99,8 @@ function getElectronApi() {
 
 function openQuickViewPanel(deviceId) {
   mountQuickViewPanel();
+  quickViewState.isLoading = true;
+  quickViewState.isOpen = true;
   quickViewState.currentlySelectedNode = null;
   quickViewState.currentDeviceId = deviceId || '';
   quickViewState.xmlLineHandlersAttached = false;
@@ -122,6 +164,11 @@ async function loadQuickViewContent(deviceId) {
       console.error('[QuickViewXML] xmlLines element not mounted when showing error');
     }
     console.error('[QuickViewXML]', error);
+  } finally {
+    quickViewState.isLoading = false;
+    if (!quickViewState.isOpen) {
+      resetQuickViewPanelState();
+    }
   }
 }
 
@@ -323,7 +370,12 @@ function updateScreenshotLayout() {
 
 function closeQuickViewPanel() {
   detachXmlLineHandlers();
-  quickViewElements.backdrop.classList.add('hidden');
+  quickViewState.isOpen = false;
+  quickViewState.isLoading = false;
+  if (quickViewElements.backdrop) {
+    quickViewElements.backdrop.classList.add('hidden');
+  }
+  resetQuickViewPanelState();
 }
 
 function copyXmlToClipboard() {
@@ -540,4 +592,5 @@ function attachQuickViewToButton(buttonId, deviceIdInputId) {
 module.exports = {
   attachQuickViewToButton,
   openQuickViewPanel,
+  resetQuickViewPanelState,
 };

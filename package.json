@@ -7,8 +7,9 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "build": "electron-builder --win --x64",
+    "build": "npm run prebuild-app && electron-builder --win --x64",
     "rebuild": "electron-rebuild -f -w robotjs,uiohook-napi",
+    "prebuild-app": "npm run rebuild",
     "predist": "npm run rebuild"
   },
   "dependencies": {
@@ -21,6 +22,8 @@
     "node-window-manager": "^2.2.4",
     "qrcode": "^1.5.4",
     "qrcode-terminal": "^0.12.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
     "robotjs": "^0.7.1",
     "tesseract.js": "^2.1.5",
     "uiohook-napi": "^1.5.5",
@@ -30,7 +33,7 @@
   "devDependencies": {
     "electron": "^28.0.0",
     "electron-builder": "^24.0.0",
-    "electron-rebuild": "^3.3.0"
+    "electron-rebuild": "^3.2.9"
   },
   "build": {
     "appId": "com.rba.studio.pro",
@@ -55,6 +58,13 @@
         "filter": [
           "**/*"
         ]
+      },
+      {
+        "from": "puppeteer-cache/",
+        "to": "puppeteer-cache/",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "asarUnpack": [
@@ -62,7 +72,10 @@
       "node_modules/jimp/**",
       "node_modules/robotjs/**",
       "node_modules/uiohook-napi/**",
-      "node_modules/node-window-manager/**"
+      "node_modules/node-window-manager/**",
+      "node_modules/whatsapp-web.js/**",
+      "node_modules/qrcode/**",
+      "node_modules/tesseract.js/**"
     ]
   }
 }

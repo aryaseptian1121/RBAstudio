@@ -17,6 +17,7 @@ window.electronAPI = {
   openFlowReturFolder: () => ipcRenderer.invoke('open-flow-retur-folder'),
   testFocusWindow: (cfg) => ipcRenderer.invoke('test-focus-window', cfg),
   scanWindows: () => ipcRenderer.invoke('scan-open-windows'),
+  clearRuntimeCache: (options) => ipcRenderer.invoke('clear-runtime-cache', options),
   saveFlow: (data) => ipcRenderer.invoke('save-flow', data),
   loadFlow: (id) => ipcRenderer.invoke('load-flow', id),
   getSavedFlows: () => ipcRenderer.invoke('get-saved-flows'),

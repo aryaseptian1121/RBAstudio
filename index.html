@@ -224,8 +224,8 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .hdr-btn.danger{background:var(--accent-red);color:var(--btn-primary-text);border-color:transparent;}
 
 /* ── VIEWS ───────────────────────────────────────── */
-.view{display:none;flex:1;overflow:hidden;}
-.view.active{display:flex;flex-direction:column;}
+.view{display:none;flex:1;overflow:hidden;position:relative;z-index:0;}
+.view.active{display:flex;flex-direction:column;position:relative;z-index:1;}
 
 @media (prefers-reduced-motion: no-preference) {
   .view.page-entering {
@@ -1566,7 +1566,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     <div class="view" id="whatsapp-bot"></div>
 
     <!-- FLOW RETUR VIEW -->
-    <div class="view" id="flow-retur">
+    <div class="view" id="flow-retur" style="display:none !important; visibility:hidden !important; pointer-events:none !important;">
       <div class="fr-section" style="padding:18px;display:flex;gap:14px;flex-direction:column;flex:1;min-height:0;overflow:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <div>
@@ -1693,7 +1693,8 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
             <label class="prop-label">ADB Path (kosong = auto-detect)</label>
             <input class="prop-input" id="adb-path-input" placeholder="C:/platform-tools/adb.exe" style="margin-bottom:8px;">
             <button class="hdr-btn" onclick="saveAdbPath()" style="width:100%;margin-bottom:6px;">Save ADB Path</button>
-            <button class="hdr-btn" onclick="showAdbInfo()" style="width:100%;">🔍 Check ADB Status</button>
+            <button class="hdr-btn" onclick="showAdbInfo()" style="width:100%;margin-bottom:6px;">🔍 Check ADB Status</button>
+            <button class="hdr-btn" onclick="clearRuntimeCacheFromUi()" style="width:100%;">🧹 Clear Cache</button>
             <div id="adb-status-msg" style="font-size:11px;color:var(--dim2);margin-top:8px;"></div>
           </div>
           <div class="setting-card">

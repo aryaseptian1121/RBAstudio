@@ -316,7 +316,7 @@ Your RBA Studio Pro is now ready for professional distribution.
 ```
 Status: ✅ READY FOR BUILD
 
-Next: cd "/Users/mac/Documents/project RBA" && npm run build:all
+Next: cd "~/dev/rba-studio-pro" && npm run build:all
 ```
 
 ---

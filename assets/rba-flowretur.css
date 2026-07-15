@@ -1,0 +1,74 @@
+/* FIX: Provide a packaged fallback stylesheet for Flow Retur UI so missing CSS no longer leaves the panel blocking the sidebar. */
+#flow-retur {
+  display: none !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  min-width: 0 !important;
+  min-height: 0 !important;
+}
+
+#flow-retur.active,
+#flow-retur.page-entering,
+#flow-retur.page-exiting {
+  display: flex !important;
+  pointer-events: auto !important;
+  visibility: visible !important;
+}
+
+#flow-retur .fr-section {
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  overflow: auto !important;
+  padding: 18px !important;
+  gap: 14px !important;
+  box-sizing: border-box !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  border-radius: 12px !important;
+  background: rgba(12, 14, 19, 0.96) !important;
+}
+
+#flow-retur .fr-section-title {
+  font-size: 16px !important;
+  font-weight: 700 !important;
+  color: #f8fafc !important;
+}
+
+#flow-retur .fr-steps-grid {
+  display: grid !important;
+  gap: 10px !important;
+  min-height: 120px !important;
+}
+
+#flow-retur #fr-device-info {
+  margin-bottom: 12px !important;
+  padding: 10px 14px !important;
+  border-radius: 8px !important;
+  border: 1px solid rgba(255,255,255,0.08) !important;
+  background: rgba(255,255,255,0.04) !important;
+  font-size: 13px !important;
+  color: #e5e7eb !important;
+}
+
+#flow-retur #fr-log {
+  flex: 1 1 auto !important;
+  overflow: auto !important;
+  padding: 6px !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  color: #e5e7eb !important;
+  font-size: 12px !important;
+  line-height: 1.5 !important;
+}
+
+#flow-retur .fr-badge {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+  padding: 4px 8px !important;
+  border-radius: 999px !important;
+  font-size: 12px !important;
+  color: #f8fafc !important;
+  background: rgba(79, 142, 247, 0.16) !important;
+}
