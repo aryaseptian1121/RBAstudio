@@ -9,6 +9,18 @@ const ipcRenderer = (typeof window !== 'undefined' && window.electronAPI && type
     }
   : (typeof window !== 'undefined' && typeof window.require === 'function' ? window.require('electron').ipcRenderer : null);
 
+const safeIpcInvoke = async (channel, payload) => {
+  if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+    try {
+      return await ipcRenderer.invoke(channel, payload);
+    } catch (error) {
+      console.warn('[safeIpcInvoke] failed for', channel, error);
+      return null;
+    }
+  }
+  return null;
+};
+
 // Safe require helper for environments without Node integration
 const safeRequire = (modulePath, rethrowError = false) => {
   try {
@@ -58,6 +70,566 @@ const openExcelLoopPanel = _panel.openExcelLoopPanel || (() => {});
 const closeExcelLoopPanel = _panel.closeExcelLoopPanel || (() => {});
 const _macroRecorderModule = safeRequire('./src/macroRecorder/macroRecorder.js') || {};
 const initMacroRecorder = _macroRecorderModule.initMacroRecorder || (() => {});
+// Load barcode module CSS if present
+(function(){
+  try{
+    if (document.querySelector('link[data-rba-barcode-css="true"]')) return;
+    const href = 'src/ui/barcode/barcode.css';
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = href;
+    link.setAttribute('data-rba-barcode-css', 'true');
+    document.head && document.head.appendChild(link);
+  }catch(e){ /* ignore in non-DOM environments */ }
+})();
+// load barcode module (runs in renderer to expose initBarcodeGenerator)
+try { safeRequire('./src/ui/barcode/index.js'); } catch(e) { /* ignore */ }
+// load lightweight component wrappers
+try { safeRequire('./src/ui/barcode/BarcodeFormatSelector.js'); } catch(e) {}
+try { safeRequire('./src/ui/barcode/BarcodeValueInput.js'); } catch(e) {}
+try { safeRequire('./src/ui/barcode/BarcodeOutputPreview.js'); } catch(e) {}
+try { safeRequire('./src/ui/barcode/BarcodeOptionsPanel.js'); } catch(e) {}
+// ─── Barcode Generator (migrated from app.js) ─────────────────────────────────
+const JsBarcode = safeRequire('jsbarcode') || (typeof window !== 'undefined' ? window.JsBarcode : null);
+const _jspdf = safeRequire('jspdf') || (typeof window !== 'undefined' ? window.jspdf : null);
+const jsPDF = _jspdf && (_jspdf.jsPDF || _jspdf.default) ? (_jspdf.jsPDF || _jspdf.default) : null;
+const JSZip = safeRequire('jszip') || (typeof window !== 'undefined' ? window.JSZip : null);
+
+const BARCODE_TYPE_MAP = {
+  custom: { jsBarcodeFormat: 'CODE128', validate: () => null, example: 'ABC-abc-1234' },
+  code128: { jsBarcodeFormat: 'CODE128', validate: (v) => /^[\s\S]+$/.test(v) ? null : 'Value tidak boleh kosong', example: 'ABC-abc-1234' },
+  code128a: { jsBarcodeFormat: 'CODE128A', validate: (v) => /^[A-Z0-9\s]+$/.test(v) ? null : 'Code 128A hanya huruf besar dan angka', example: 'ABC123' },
+  code128b: { jsBarcodeFormat: 'CODE128B', validate: (v) => v && v.length > 0 ? null : 'Value tidak boleh kosong', example: 'Hello World!' },
+  code128c: { jsBarcodeFormat: 'CODE128C', validate: (v) => /^\d+$/.test(v) && v.length % 2 === 0 ? null : 'Code 128C harus angka genap', example: '12345678' },
+  ean13: { jsBarcodeFormat: 'EAN13', validate: (v) => /^\d+$/.test(v) && v.length >= 12 && v.length <= 13 ? null : 'EAN-13 harus 12-13 digit angka', example: '5901234123457' },
+  ean8: { jsBarcodeFormat: 'EAN8', validate: (v) => /^\d+$/.test(v) && v.length >= 7 && v.length <= 8 ? null : 'EAN-8 harus 7-8 digit angka', example: '96385074' },
+  upca: { jsBarcodeFormat: 'UPC', validate: (v) => /^\d+$/.test(v) && v.length >= 11 && v.length <= 12 ? null : 'UPC-A harus 11-12 digit angka', example: '042100005264' },
+  code39: { jsBarcodeFormat: 'CODE39', validate: (v) => /^[A-Z0-9\-.$/+%\s]+$/.test(v) ? null : 'Code 39 hanya karakter yang diperbolehkan', example: 'CODE39' },
+  itf14: { jsBarcodeFormat: 'ITF14', validate: (v) => /^\d+$/.test(v) && v.length % 2 === 0 ? null : 'ITF14 harus digit genap', example: '10012345000017' },
+  msi: { jsBarcodeFormat: 'MSI', validate: (v) => /^\d+$/.test(v) ? null : 'MSI hanya angka', example: '1234567' },
+  pharmacode: { jsBarcodeFormat: 'pharmacode', validate: (v) => /^\d+$/.test(v) && Number(v) >= 3 && Number(v) <= 131070 ? null : 'Pharmacode harus angka 3-131070', example: '12345' },
+  codabar: { jsBarcodeFormat: 'codabar', validate: (v) => /^[A-D0-9\-.$/:+\s]+$/.test(v) ? null : 'Codabar hanya karakter yang diperbolehkan', example: 'A123456A' },
+  gs1_128: { jsBarcodeFormat: 'CODE128', validate: (v) => v && v.length > 0 ? null : 'GS1-128 tidak boleh kosong', example: '(01)09521234543213(3103)000123' },
+  qr: { jsBarcodeFormat: 'QR', validate: (v) => v && v.length > 0 ? null : 'QR tidak boleh kosong', example: 'https://rba.app' },
+  datamatrix: { jsBarcodeFormat: 'DATAMATRIX', validate: (v) => v && v.length > 0 ? null : 'Data Matrix tidak boleh kosong', example: 'RBA-123' }
+};
+
+const BARCODE_FORMATS = [
+  { id: 'custom', title: 'Custom Barcode Design', category: 'Popular', example: 'ABC-abc-1234' },
+  { id: 'code128', title: 'Code 128', category: 'Code 128', example: 'ABC-abc-1234' },
+  { id: 'code128a', title: 'Code 128A', category: 'Code 128', example: 'ABC123' },
+  { id: 'code128b', title: 'Code 128B', category: 'Code 128', example: 'Hello World!' },
+  { id: 'code128c', title: 'Code 128C', category: 'Code 128', example: '12345678' },
+  { id: 'gs1_128', title: 'GS1-128', category: 'Code 128', example: '(01)09521234543213(3103)000123' },
+  { id: 'ean13', title: 'EAN-13', category: 'EAN / UPC', example: '5901234123457' },
+  { id: 'ean8', title: 'EAN-8', category: 'EAN / UPC', example: '96385074' },
+  { id: 'upca', title: 'UPC-A', category: 'EAN / UPC', example: '042100005264' },
+  { id: 'code39', title: 'Code 39', category: 'Code 39 / Code 93', example: 'CODE39' },
+  { id: 'itf14', title: 'ITF (Interleaved 2 of 5)', category: 'ITF', example: '10012345000017' },
+  { id: 'msi', title: 'MSI', category: 'MSI', example: '1234567' },
+  { id: 'pharmacode', title: 'Pharmacode', category: 'Pharmacode', example: '12345' },
+  { id: 'codabar', title: 'Codabar', category: 'Codabar', example: 'A123456A' },
+  { id: 'qr', title: 'QR Code', category: '2D', example: 'https://rba.app' },
+  { id: 'datamatrix', title: 'Data Matrix', category: '2D', example: 'RBA-123' }
+];
+
+const barcodeState = {
+  selectedFormat: 'custom',
+  search: '',
+  entries: [],
+  options: {
+    showText: true,
+    maxWidth: 260,
+    height: 80,
+    margin: 10,
+    color: '#111827',
+    background: '#ffffff',
+    fontSize: 18,
+    textAlign: 'center',
+    rotation: 0
+  }
+};
+
+function normalizeBarcodeValue(value, formatId) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  if (formatId === 'gs1_128') {
+    return parseGS1Input(text);
+  }
+  return text;
+}
+
+function parseGS1Input(raw) {
+  let text = String(raw || '').trim();
+  if (!text) return '';
+  text = text.replace(/\s+/g, '');
+  const aiMatches = [...text.matchAll(/\((\d{2,4})\)/g)];
+  if (!aiMatches.length) return text;
+  let result = '';
+  let cursor = 0;
+  for (const match of aiMatches) {
+    const idx = match.index;
+    const ai = match[1];
+    if (idx > cursor) {
+      result += text.slice(cursor, idx);
+    }
+    result += '\u00f1' + ai + ' ';
+    cursor = idx + match[0].length;
+  }
+  if (cursor < text.length) {
+    result += text.slice(cursor);
+  }
+  return result.replace(/\s+/g, '').replace(/\u00f1+/g, '\u00f1');
+}
+
+function validateValue(v, formatId) {
+  const validator = (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).validate;
+  if (!v || !String(v).trim()) return 'Value tidak boleh kosong';
+  return validator(String(v).trim()) || null;
+}
+
+function initBarcodeGenerator() {
+  // Prefer the module-provided initializer if available to avoid duplicate implementations.
+  if (typeof window !== 'undefined' && typeof window.initBarcodeGenerator === 'function' && window.initBarcodeGenerator !== initBarcodeGenerator) {
+    try { window.initBarcodeGenerator(); return; } catch (e) { console.error('delegated initBarcodeGenerator failed', e); }
+  }
+
+  // Fallback: minimal wiring if module isn't available
+  try {
+    assignBarcodeOptionsToInputs();
+    renderBarcodeFormatSelector();
+    if (typeof parseBarcodeTextarea === 'function') { parseBarcodeTextarea(); }
+    renderBarcodePreview();
+  } catch (e) { console.warn('fallback initBarcodeGenerator error', e); }
+}
+
+function renderBarcodeFormatSelector() {
+  var search = (document.getElementById('barcode-search') || { value: '' }).value.toLowerCase();
+  var list = document.getElementById('barcode-format-list');
+  if (!list) return;
+  var categories = {};
+  BARCODE_FORMATS.forEach(function(format) {
+    var match = format.title.toLowerCase().includes(search) || format.category.toLowerCase().includes(search) || format.id.toLowerCase().includes(search);
+    if (!match) return;
+    if (!categories[format.category]) categories[format.category] = [];
+    categories[format.category].push(format);
+  });
+  var htmlParts = [];
+  Object.keys(categories).forEach(function(category) {
+    var items = categories[category];
+    var itemHtml = '';
+    items.forEach(function(item) {
+      var activeClass = barcodeState.selectedFormat === item.id ? 'active' : '';
+      itemHtml += '<div class="barcode-format-card ' + activeClass + '" data-format="' + item.id + '" onclick="selectBarcodeFormat(\'' + item.id + '\')">' +
+        '<div class="barcode-format-card-top"><strong>' + item.title + '</strong></div>' +
+        '<div class="barcode-mini-preview">' + renderMiniBarcode(item.example || '', item.id) + '</div>' +
+        '</div>';
+    });
+    htmlParts.push('<div class="barcode-category"><div class="barcode-category-header"><span>' + category + '</span><span>' + items.length + '</span></div><div class="barcode-category-items">' + itemHtml + '</div></div>');
+  });
+  list.innerHTML = htmlParts.join('');
+  var customCard = document.getElementById('barcode-custom-design');
+  if (customCard) {
+    customCard.classList.toggle('active', barcodeState.selectedFormat === 'custom');
+  }
+}
+
+function renderMiniBarcode(value, formatId) {
+  if (!value) return '<span style="color:#475569;font-size:11px;">N/A</span>';
+  var normalized = normalizeBarcodeValue(value, formatId || barcodeState.selectedFormat);
+  var safeFormat = formatId === 'custom' ? 'CODE128' : (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).jsBarcodeFormat;
+  var svgId = 'mini-' + formatId + '-' + Math.random().toString(16).slice(2);
+  setTimeout(() => {
+    try {
+      const el = document.getElementById(svgId);
+      if (el && typeof JsBarcode === 'function') {
+        JsBarcode(el, normalized, { format: safeFormat, displayValue: false, background: '#ffffff', lineColor: '#111827', width: 1.5, height: 28, margin: 4 });
+      }
+    } catch (e) {}
+  }, 0);
+  return '<svg id="' + svgId + '" xmlns="http://www.w3.org/2000/svg" width="120" height="32" viewBox="0 0 120 32"></svg>';
+}
+
+function updateBarcodeOptionsFromInput() {
+  barcodeState.options.showText = document.getElementById('barcode-show-text').checked;
+  barcodeState.options.maxWidth = Number(document.getElementById('barcode-max-width').value || 260);
+  barcodeState.options.height = Number(document.getElementById('barcode-height').value || 80);
+  barcodeState.options.margin = Number(document.getElementById('barcode-margin').value || 10);
+  barcodeState.options.color = document.getElementById('barcode-color').value || '#111827';
+  barcodeState.options.background = document.getElementById('barcode-bg-color').value || '#ffffff';
+  barcodeState.options.fontSize = Number(document.getElementById('barcode-font-size').value || 18);
+  barcodeState.options.textAlign = document.getElementById('barcode-text-align').value || 'center';
+  barcodeState.options.rotation = Number(document.getElementById('barcode-rotation').value || 0);
+}
+
+function createBarcodeSvg(value, caption, formatId) {
+  const safeFormat = formatId === 'custom' ? 'CODE128' : (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).jsBarcodeFormat;
+  const normalizedValue = normalizeBarcodeValue(value, formatId || barcodeState.selectedFormat);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  svg.setAttribute('viewBox', '0 0 320 180');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  const options = {
+    format: safeFormat,
+    // Always disable JsBarcode internal text; we render caption/value separately below
+    displayValue: false,
+    text: normalizedValue,
+    fontSize: barcodeState.options.fontSize,
+    height: barcodeState.options.height,
+    width: Math.max(1.2, Math.min(3.2, Math.max(1, barcodeState.options.maxWidth / 180))),
+    margin: barcodeState.options.margin,
+    background: barcodeState.options.background,
+    lineColor: barcodeState.options.color,
+    textAlign: barcodeState.options.textAlign,
+    textMargin: 8,
+    fontOptions: '',
+    flat: false,
+    rotation: barcodeState.options.rotation
+  };
+  if (formatId === 'gs1_128') {
+    options.text = normalizedValue;
+  }
+  if (formatId === 'qr' || formatId === 'datamatrix') {
+    const parent = document.createElement('div');
+    parent.style.width = '100%';
+    parent.style.display = 'flex';
+    parent.style.justifyContent = 'center';
+    parent.style.alignItems = 'center';
+    parent.style.height = '100%';
+    parent.innerHTML = formatId === 'qr' ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text x="60" y="60" text-anchor="middle" font-size="12" fill="#111827">QR</text></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text x="60" y="60" text-anchor="middle" font-size="12" fill="#111827">DM</text></svg>';
+    return parent;
+  }
+  try {
+    if (typeof JsBarcode === 'function') JsBarcode(svg, normalizedValue, options);
+  } catch (e) {
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', '160');
+    text.setAttribute('y', '100');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#dc2626');
+    text.setAttribute('font-size', '12');
+    text.textContent = 'Invalid value';
+    svg.appendChild(text);
+  }
+  return svg;
+}
+
+function parseBarcodeTextarea() {
+  const textarea = document.getElementById('barcode-values-input');
+  if (!textarea) return;
+  const raw = textarea.value || '';
+  const lines = raw.split(/\r?\n/).filter((line) => line.trim() !== '');
+  if (!lines.length) {
+    barcodeState.entries = [];
+    return;
+  }
+  barcodeState.entries = lines.map((line) => {
+    const parts = line.split('\t');
+    const value = (parts[0] || '').trim();
+    const caption = (parts[1] || '').trim();
+    const error = validateValue(value, barcodeState.selectedFormat);
+    return { id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'entry-' + Date.now(), value, caption, error };
+  }).filter((entry) => entry.value && entry.value.trim());
+}
+
+function serializeEntriesToTextarea() {
+  const textarea = document.getElementById('barcode-values-input');
+  if (!textarea) return;
+  textarea.value = barcodeState.entries
+    .map((entry) => {
+      const value = String(entry.value || '').trim();
+      const caption = String(entry.caption || '').trim();
+      if (!value) return '';
+      return caption ? value + '\t' + caption : value;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderBarcodePreview() {
+  const preview = document.getElementById('barcode-preview');
+  if (!preview) return;
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) {
+    preview.innerHTML = '<div class="barcode-empty">' +
+      '<div class="barcode-empty-icon">📦</div>' +
+      '<div><strong>Barcode Values masih kosong</strong></div>' +
+      '<div>Masukkan value pertama Anda untuk mulai membuat barcode.</div>' +
+      '</div>';
+    return;
+  }
+
+  preview.innerHTML = entries.map((entry) => {
+    const formatId = barcodeState.selectedFormat || 'custom';
+    const validationError = validateValue(entry.value, formatId);
+    const safeValue = normalizeBarcodeValue(entry.value, formatId);
+    const captionText = entry.caption || safeValue;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'barcode-output-card';
+    try {
+      const svg = createBarcodeSvg(entry.value, entry.caption, formatId);
+      wrapper.appendChild(svg);
+    } catch (err) {
+      wrapper.innerHTML = '<div style="color:#dc2626;font-weight:600;">Preview failed</div>';
+    }
+    const label = document.createElement('div');
+    label.className = 'barcode-output-text';
+    label.textContent = captionText || safeValue || 'No value';
+    wrapper.appendChild(label);
+    if (validationError) {
+      const errorNode = document.createElement('div');
+      errorNode.className = 'barcode-output-error';
+      errorNode.textContent = validationError;
+      wrapper.appendChild(errorNode);
+    }
+    return wrapper.outerHTML;
+  }).join('');
+}
+
+function selectBarcodeFormat(formatId) {
+  barcodeState.selectedFormat = formatId;
+  const textarea = document.getElementById('barcode-values-input');
+  const textareaValue = textarea ? textarea.value.trim() : '';
+  const currentEntries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+
+  if (!currentEntries.length && textareaValue) {
+    parseBarcodeTextarea();
+  } else if (currentEntries.length) {
+    barcodeState.entries = currentEntries.map((entry) => ({ ...entry, error: validateValue(entry.value, formatId) }));
+  }
+
+  serializeEntriesToTextarea();
+  renderBarcodeFormatSelector();
+  renderBarcodePreview();
+}
+
+function syncBarcodeTextareaToState() {
+  parseBarcodeTextarea();
+  renderBarcodePreview();
+}
+
+function assignBarcodeOptionsToInputs() {
+  const el = (id) => document.getElementById(id);
+  if (!el('barcode-show-text')) return;
+  el('barcode-show-text').checked = barcodeState.options.showText;
+  el('barcode-max-width').value = barcodeState.options.maxWidth;
+  el('barcode-height').value = barcodeState.options.height;
+  el('barcode-margin').value = barcodeState.options.margin;
+  el('barcode-color').value = barcodeState.options.color;
+  el('barcode-bg-color').value = barcodeState.options.background;
+  el('barcode-font-size').value = barcodeState.options.fontSize;
+  el('barcode-text-align').value = barcodeState.options.textAlign;
+  el('barcode-rotation').value = barcodeState.options.rotation;
+}
+
+function initBarcodeGenerator() {
+  const root = document.getElementById('barcode-generator');
+  const modal = document.getElementById('barcode-sequence-modal');
+  const printView = document.getElementById('barcode-print-view');
+
+  if (root && modal && !root.contains(modal)) {
+    root.appendChild(modal);
+  }
+  if (root && printView && !root.contains(printView)) {
+    root.appendChild(printView);
+  }
+
+  if (root && root.dataset.barcodeInit === 'true') {
+    if (typeof parseBarcodeTextarea === 'function') parseBarcodeTextarea();
+    renderBarcodeFormatSelector();
+    renderBarcodePreview();
+    return;
+  }
+  if (root) root.dataset.barcodeInit = 'true';
+
+  assignBarcodeOptionsToInputs();
+  renderBarcodeFormatSelector();
+  const textarea = document.getElementById('barcode-values-input');
+  if (textarea) {
+    barcodeState.entries = textarea.value.split(/\r?\n/).filter(Boolean).map((line) => ({
+      id: (crypto && crypto.randomUUID) ? crypto.randomUUID() : 'entry-' + Date.now(),
+      value: line.split('\t')[0].trim(),
+      caption: (line.split('\t')[1] || '').trim(),
+      error: null
+    }));
+  }
+  if (typeof parseBarcodeTextarea === 'function') parseBarcodeTextarea();
+  renderBarcodePreview();
+
+  const showText = document.getElementById('barcode-show-text');
+  if (showText) showText.addEventListener('change', () => { updateBarcodeOptionsFromInput(); renderBarcodePreview(); });
+  ['barcode-max-width', 'barcode-height', 'barcode-margin', 'barcode-color', 'barcode-bg-color', 'barcode-font-size', 'barcode-text-align', 'barcode-rotation'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.addEventListener('input', () => { updateBarcodeOptionsFromInput(); renderBarcodePreview(); });
+    el.addEventListener('change', () => { updateBarcodeOptionsFromInput(); renderBarcodePreview(); });
+  });
+
+  const valuesEditor = document.getElementById('barcode-values-input');
+  if (valuesEditor) {
+    valuesEditor.addEventListener('input', () => {
+      let timeout = valuesEditor.dataset.debounce;
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => { syncBarcodeTextareaToState(); }, 200);
+      valuesEditor.dataset.debounce = timeout;
+    });
+  }
+
+  const importBtn = document.getElementById('barcode-import-csv');
+  if (importBtn) importBtn.addEventListener('click', () => { document.getElementById('barcode-csv-input').click(); });
+
+  const csvInput = document.getElementById('barcode-csv-input');
+  if (csvInput) csvInput.addEventListener('change', (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      const text = String(loadEvent.target.result || '');
+      const textarea = document.getElementById('barcode-values-input');
+      if (textarea) { textarea.value = text.replace(/\r/g, '').trim(); syncBarcodeTextareaToState(); }
+    };
+    reader.readAsText(file);
+  });
+
+  const copyBtn = document.getElementById('barcode-copy-output');
+  if (copyBtn) copyBtn.addEventListener('click', async () => {
+    const svgList = [...document.querySelectorAll('#barcode-preview svg')];
+    if (!svgList.length) return;
+    try {
+      const blob = new Blob([new XMLSerializer().serializeToString(svgList[0])], { type: 'image/svg+xml' });
+      if (navigator && navigator.clipboard && typeof navigator.clipboard.write === 'function') {
+        const item = new ClipboardItem({ 'image/svg+xml': blob });
+        await navigator.clipboard.write([item]);
+        if (typeof addLog === 'function') addLog('Barcode SVG copied to clipboard', 'success');
+      }
+    } catch (e) { if (typeof addLog === 'function') addLog('Clipboard tidak didukung pada browser ini', 'warn'); }
+  });
+
+  const seqBtn = document.getElementById('barcode-create-sequence');
+  if (seqBtn) seqBtn.addEventListener('click', () => { const modal = document.getElementById('barcode-sequence-modal'); if (modal) modal.classList.add('active'); });
+  const seqCancel = document.getElementById('barcode-sequence-cancel'); if (seqCancel) seqCancel.addEventListener('click', () => { document.getElementById('barcode-sequence-modal').classList.remove('active'); });
+  const seqApply = document.getElementById('barcode-sequence-apply'); if (seqApply) seqApply.addEventListener('click', () => {
+    const prefix = document.getElementById('sequence-prefix').value || '';
+    const suffix = document.getElementById('sequence-suffix').value || '';
+    const start = Number(document.getElementById('sequence-start').value || 1);
+    const count = Number(document.getElementById('sequence-count').value || 10);
+    const step = Number(document.getElementById('sequence-step').value || 1);
+    const padding = Number(document.getElementById('sequence-padding').value || 0);
+    const values = generateSequence({ prefix, start, count, step, padding, suffix });
+    const textarea = document.getElementById('barcode-values-input');
+    if (textarea) { textarea.value = values.join('\n'); syncBarcodeTextareaToState(); }
+    document.getElementById('barcode-sequence-modal').classList.remove('active');
+  });
+
+  const downloadBtn = document.getElementById('barcode-download-btn');
+  if (downloadBtn) downloadBtn.addEventListener('click', () => { const format = document.getElementById('barcode-download-format').value; performBarcodeDownload(format); });
+
+  const printBtn = document.getElementById('barcode-print-labels');
+  if (printBtn) printBtn.addEventListener('click', () => { renderPrintLabels(); window.print(); });
+}
+
+function generateSequence({ prefix, start, count, step, padding, suffix }) {
+  const values = [];
+  let current = Number(start) || 1;
+  for (let i = 0; i < (Number(count) || 1); i++) {
+    const raw = String(current);
+    const padded = padding > 0 ? raw.padStart(Number(padding), '0') : raw;
+    values.push(String(prefix || '') + padded + String(suffix || ''));
+    current += Number(step) || 1;
+  }
+  return values;
+}
+
+function performBarcodeDownload(format) {
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) return;
+  if (format === 'pdf') {
+    if (!jsPDF) { if (typeof addLog === 'function') addLog('PDF export unavailable (jspdf missing)', 'warn'); return; }
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    entries.forEach((entry, index) => {
+      if (index > 0) doc.addPage();
+      const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+      const serialized = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([serialized], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 600; canvas.height = 200;
+        const ctx = canvas.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/png');
+        doc.addImage(dataUrl, 'PNG', 20, 30, 170, 80);
+        if (index === entries.length - 1) { doc.save('barcode-export.pdf'); }
+      };
+      image.src = url;
+    });
+    return;
+  }
+
+  if (!JSZip && (format !== 'svg')) { if (typeof addLog === 'function') addLog('ZIP export unavailable (jszip missing)', 'warn'); }
+  const zip = JSZip ? new JSZip() : null;
+  const workPromises = [];
+  entries.forEach((entry, idx) => {
+    const safe = normalizeBarcodeValue(entry.value, barcodeState.selectedFormat);
+    const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+    const xml = new XMLSerializer().serializeToString(svg);
+    const fileName = 'barcode-' + String(idx + 1).padStart(3, '0') + '.' + format;
+    if (format === 'svg') {
+      if (zip) zip.file(fileName, xml); else triggerDownload(new Blob([xml], { type: 'image/svg+xml' }), fileName);
+    } else {
+      workPromises.push(svgToBlob(xml, format).then((blob) => {
+        if (entries.length === 1 && format !== 'svg') { triggerDownload(blob, 'barcode-export.' + format); }
+        else if (zip) zip.file(fileName, blob);
+      }));
+    }
+  });
+
+  Promise.all(workPromises).then(() => {
+    if (zip) {
+      zip.generateAsync({ type: 'blob' }).then((content) => { triggerDownload(content, 'barcode-export.zip'); });
+    }
+  });
+}
+
+function svgToBlob(svgString, format) {
+  const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  if (format === 'svg') return Promise.resolve(svgBlob);
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(svgBlob);
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas'); canvas.width = 1000; canvas.height = 300;
+      const ctx = canvas.getContext('2d'); ctx.fillStyle = '#ffffff'; ctx.fillRect(0,0,canvas.width,canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => { URL.revokeObjectURL(url); resolve(blob); }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
+    };
+    image.src = url;
+  });
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 400);
+}
+
+function renderPrintLabels() {
+  const view = document.getElementById('barcode-print-view');
+  if (!view) return;
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) return;
+  view.innerHTML = '<div class="barcode-print-grid">' + entries.map((entry) => {
+    const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+    const xml = new XMLSerializer().serializeToString(svg);
+    const displayText = entry.caption || entry.value;
+    return '<div class="barcode-print-card">' + xml + '<div class="caption">' + displayText + '</div></div>';
+  }).join('') + '</div>';
+}
+
+// wire menu open-barcode if available
+try { if (ipcRenderer && typeof ipcRenderer.on === 'function') ipcRenderer.on('open-barcode', () => { try { switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator(); } catch (e) { console.error(e); } }); } catch (e) {}
+
 const _whatsappBotModule = safeRequire('./src/whatsappBot/whatsappBot.js') || {};
 const initWhatsAppBot = _whatsappBotModule.initWhatsAppBot || (() => {});
 
@@ -704,12 +1276,21 @@ let activeViewId = 'dashboard';
 
 function setViewVisibility(view, isActive) {
   if (!view) return;
+
   view.classList.toggle('active', isActive);
   view.classList.toggle('page-entering', isActive);
   view.classList.toggle('page-exiting', false);
+
   view.style.display = isActive ? 'flex' : 'none';
   view.style.visibility = isActive ? 'visible' : 'hidden';
   view.style.pointerEvents = isActive ? 'auto' : 'none';
+  view.style.opacity = isActive ? '1' : '0';
+
+  if (!isActive) {
+    view.setAttribute('aria-hidden', 'true');
+  } else {
+    view.setAttribute('aria-hidden', 'false');
+  }
 }
 
 function renderViewError(targetEl, title, message, detail = '') {
@@ -728,7 +1309,7 @@ function switchView(id) {
   const target = document.getElementById(id);
   if (!target) return;
 
-  const navMap = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', 'flow-retur':'nav-flow-retur', settings:'nav-set' };
+  const navMap = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', 'excel-loop':'nav-excel-loop', 'whatsapp-bot':'nav-whatsapp-bot', 'flow-retur':'nav-flow-retur', settings:'nav-set', 'barcode-generator':'nav-barcode' };
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
   if (navMap[id]) document.getElementById(navMap[id]).classList.add('active');
 
@@ -738,8 +1319,18 @@ function switchView(id) {
     }
   });
 
+  const seqModal = document.getElementById('barcode-sequence-modal');
+  if (seqModal && id !== 'barcode-generator') {
+    seqModal.classList.remove('active');
+    seqModal.setAttribute('aria-hidden', 'true');
+  }
+
   setViewVisibility(target, true);
   activeViewId = id;
+
+  if (id === 'barcode-generator' && typeof initBarcodeGenerator === 'function') {
+    try { initBarcodeGenerator(); } catch (e) { console.error('[renderer] Failed to initialize barcode generator:', e); }
+  }
 
   if (id === 'excel-loop' && !excelLoopPanel) {
     const mountEl = document.getElementById('excel-loop');
@@ -3785,9 +4376,11 @@ function updateDeviceSelector(devices) {
     statusAdb.textContent = sel.value || 'No Device';
   }
 }
-ipcRenderer.on('device-list', (e, list) => {
-  updateDeviceSelector(list);
-});
+if (ipcRenderer && typeof ipcRenderer.on === 'function') {
+  ipcRenderer.on('device-list', (e, list) => {
+    updateDeviceSelector(list);
+  });
+}
 
 function resolveAdbDevice(step, selectedDevice, stepIndex) {
   const requested = String(step.deviceId || '').trim();
@@ -5055,7 +5648,9 @@ function applyTheme(theme) {
   const root = document.documentElement;
   root.setAttribute('data-theme', theme);
   prefs.theme = theme;
-  ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+  if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+    ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+  }
 }
 
 function initTheme() {
@@ -5064,29 +5659,39 @@ function initTheme() {
 
 // ─── Settings ────────────────────────────────────────────────
 async function loadPrefs() {
-  const s = await ipcRenderer.invoke('get-settings');
-  Object.assign(prefs, s);
+  const saved = await safeIpcInvoke('get-settings');
+  if (saved) Object.assign(prefs, saved);
   initTheme();
-  document.getElementById('pref-autosave').checked = prefs.autoSave;
-  document.getElementById('pref-confirm').checked  = prefs.confirmDelete;
-  document.getElementById('pref-snap').checked     = prefs.snap;
-  document.getElementById('pref-stepnum').checked  = prefs.showStepNum;
-  document.getElementById('pref-animate').checked  = prefs.animate;
-  if (prefs.adbPath) document.getElementById('adb-path-input').value = prefs.adbPath;
+  const prefAutosave = document.getElementById('pref-autosave');
+  const prefConfirm = document.getElementById('pref-confirm');
+  const prefSnap = document.getElementById('pref-snap');
+  const prefStepnum = document.getElementById('pref-stepnum');
+  const prefAnimate = document.getElementById('pref-animate');
+  const adbPathInput = document.getElementById('adb-path-input');
+  if (prefAutosave) prefAutosave.checked = !!prefs.autoSave;
+  if (prefConfirm) prefConfirm.checked = !!prefs.confirmDelete;
+  if (prefSnap) prefSnap.checked = !!prefs.snap;
+  if (prefStepnum) prefStepnum.checked = !!prefs.showStepNum;
+  if (prefAnimate) prefAnimate.checked = !!prefs.animate;
+  if (adbPathInput && prefs.adbPath) adbPathInput.value = prefs.adbPath;
 }
 function savePref() {
-  prefs.autoSave    = document.getElementById('pref-autosave').checked;
-  prefs.confirmDelete = document.getElementById('pref-confirm').checked;
-  prefs.snap        = document.getElementById('pref-snap').checked;
-  prefs.showStepNum = document.getElementById('pref-stepnum').checked;
-  prefs.animate     = document.getElementById('pref-animate').checked;
+  prefs.autoSave    = !!document.getElementById('pref-autosave')?.checked;
+  prefs.confirmDelete = !!document.getElementById('pref-confirm')?.checked;
+  prefs.snap        = !!document.getElementById('pref-snap')?.checked;
+  prefs.showStepNum = !!document.getElementById('pref-stepnum')?.checked;
+  prefs.animate     = !!document.getElementById('pref-animate')?.checked;
   snapToGrid = prefs.snap;
-  ipcRenderer.invoke('save-settings', prefs);
+  if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+    ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+  }
   render();
 }
 function saveAdbPath() {
-  prefs.adbPath = document.getElementById('adb-path-input').value;
-  ipcRenderer.invoke('save-settings', prefs);
+  prefs.adbPath = document.getElementById('adb-path-input')?.value || '';
+  if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+    ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+  }
   addLog('ADB path saved: '+prefs.adbPath, 'info');
 }
 async function clearRuntimeCacheFromUi() {
@@ -5105,8 +5710,20 @@ async function clearRuntimeCacheFromUi() {
     addLog('Gagal membersihkan cache: ' + (error?.message || error), 'error');
   }
 }
-function setLang(l) { prefs.lang=l; ipcRenderer.invoke('save-settings',prefs); }
-function resetAllSettings() { if(confirm('Reset semua settings?')) { ipcRenderer.invoke('save-settings',{}); location.reload(); } }
+function setLang(l) {
+  prefs.lang = l;
+  if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+    ipcRenderer.invoke('save-settings', prefs).catch(() => {});
+  }
+}
+function resetAllSettings() {
+  if (confirm('Reset semua settings?')) {
+    if (ipcRenderer && typeof ipcRenderer.invoke === 'function') {
+      ipcRenderer.invoke('save-settings', {}).catch(() => {});
+    }
+    location.reload();
+  }
+}
 
 // ─── Macro Recorder View ──────────────────────────────────────
 function startMacroRecord() {
@@ -5182,8 +5799,8 @@ window.addEventListener('keydown', e => {
   addLog('RBA Studio Pro 2.0 ready!', 'success');
   addLog('Tip: Drag activities dari panel kiri ke canvas, lalu drag port biru untuk menghubungkan nodes.', 'info');
   // Check ADB before refreshing devices
-  const adbInfo = await ipcRenderer.invoke('adb-info');
-  if (adbInfo.found) {
+  const adbInfo = await safeIpcInvoke('adb-info');
+  if (adbInfo && adbInfo.found) {
     refreshDevices();
     updateDashboardStats();
   } else {
