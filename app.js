@@ -2,7 +2,7 @@
 // RBA STUDIO PRO — app.js (Enhanced & Fixed)
 // Author: Arya Septian  |  Version: 2.0
 // ============================================================
-const { app, BrowserWindow, ipcMain, shell, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, shell, dialog, Menu } = require("electron");
 const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
@@ -146,7 +146,51 @@ function createWindow() {
         webPreferences:{ nodeIntegration:true, contextIsolation:false },
         backgroundColor:'#080d17'
     });
-    win.loadURL("data:text/html;charset=utf-8,"+encodeURIComponent(html));
+    win.loadURL("data:text/html;charset=utf-8," + encodeURIComponent(html));
+}
+
+function setupAppMenu() {
+  const isMac = process.platform === 'darwin';
+  const template = [];
+  if (isMac) {
+    template.push({
+      label: app.name,
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideothers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' }
+      ]
+    });
+  }
+  template.push({
+    label: 'File',
+    submenu: [
+      isMac ? { role: 'close' } : { role: 'quit' }
+    ]
+  });
+  template.push({
+    label: 'View',
+    submenu: [
+      { role: 'reload' },
+      { role: 'forcereload' },
+      { role: 'toggledevtools' },
+      { type: 'separator' },
+      { role: 'togglefullscreen' },
+      { type: 'separator' },
+        { label: 'Open Barcode Generator', accelerator: isMac ? 'Cmd+Shift+B' : 'Ctrl+Shift+B', click: () => {
+          const w = BrowserWindow.getAllWindows()[0];
+          if (w) w.webContents.send('open-barcode');
+        } }
+    ]
+  });
+    const menu = Menu.buildFromTemplate(template);
+    Menu.setApplicationMenu(menu);
 }
 
 // ─────────────────────────────────────────
@@ -263,16 +307,23 @@ body{background:var(--bg);color:var(--text);height:100vh;overflow:hidden;user-se
 
 /* ── LAYOUT ─────────────────────────────────────── */
 .shell{display:flex;height:100vh;}
-.sidebar{width:68px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0 12px;gap:4px;z-index:200;flex-shrink:0;}
+.sidebar{width:220px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:flex-start;padding:16px 12px;gap:8px;z-index:200;flex-shrink:0;}
+.sidebar-labels{position:fixed;left:80px;top:20px;display:flex;flex-direction:column;gap:6px;pointer-events:auto;z-index:210}
+.sidebar-labels .item{background:transparent;color:var(--dim2);padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px;display:flex;align-items:center;gap:10px}
+.sidebar-labels .item:hover{background:rgba(255,255,255,0.03);color:var(--text)}
+.sidebar-labels .item.active{background:var(--accent);color:#fff}
 .main{flex:1;display:flex;flex-direction:column;min-width:0;}
 header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;}
 
 /* ── SIDEBAR ICONS ───────────────────────────────── */
-.nav-ico{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--dim2);font-size:18px;transition:all .2s;position:relative;}
-.nav-ico:hover{background:rgba(255,255,255,0.06);color:var(--text);}
+.nav-ico{height:44px;border-radius:12px;display:flex;align-items:center;gap:12px;cursor:pointer;color:var(--dim2);font-size:15px;padding:8px 12px;transition:all .18s;position:relative;width:100%;}
+.nav-ico .icon{width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:18px;border-radius:8px}
+.nav-ico:hover{background:rgba(255,255,255,0.03);color:var(--text);}
 .nav-ico.active{background:var(--accent);color:#fff;box-shadow:var(--glow-blue);}
-.nav-ico .tooltip{position:absolute;left:56px;background:rgba(15,23,42,0.95);color:#fff;font-size:11px;white-space:nowrap;padding:5px 10px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .15s;border:1px solid var(--border);}
-.nav-ico:hover .tooltip{opacity:1;}
+.nav-ico .tooltip{display:none}
+.nav-ico .label-inline{font-size:14px;color:var(--dim2)}
+/* Permanent label next to icon (used for some items like Barcode) */
+.nav-ico .label{position:absolute;left:56px;top:50%;transform:translateY(-50%);color:var(--text);font-size:13px;white-space:nowrap;opacity:1;padding-left:6px;}
 .sidebar-sep{width:36px;height:1px;background:var(--border);margin:6px 0;}
 
 /* ── HEADER ──────────────────────────────────────── */
@@ -288,6 +339,10 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .hdr-badge.online{border-color:var(--green);color:var(--green);background:rgba(16,185,129,0.1);}
 .hdr-badge.offline{border-color:var(--red);color:var(--red);background:rgba(239,68,68,0.08);}
 .hdr-dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+
+/* Dashboard CTA */
+.dash-cta{display:flex;align-items:center;justify-content:space-between;gap:12px;background:linear-gradient(90deg,rgba(79,70,229,0.08),rgba(139,92,246,0.04));border:1px solid rgba(99,102,241,0.08);padding:14px;border-radius:12px;margin-top:12px}
+.dash-cta-text{font-size:14px;color:var(--dim2)}
 .hdr-btn{border:none;background:rgba(255,255,255,0.07);color:var(--text);border-radius:10px;padding:7px 14px;font-size:12px;cursor:pointer;transition:.15s;border:1px solid var(--border2);}
 .hdr-btn:hover{background:rgba(255,255,255,0.12);}
 .hdr-btn.primary{background:var(--accent);color:#fff;border-color:transparent;}
@@ -507,10 +562,92 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .rec-badge.active{display:flex;}
 .rec-dot{width:8px;height:8px;border-radius:50%;background:var(--red);}
 
-/* ── SCROLLBARS ──────────────────────────────────── */
-::-webkit-scrollbar{width:5px;height:5px;}
-::-webkit-scrollbar-track{background:transparent;}
-::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
+/* ── BARCODE GENERATOR ─────────────────────────────── */
+.barcode-layout{display:grid;grid-template-columns:1.08fr 1.8fr 0.95fr;gap:14px;height:100%;padding:18px;overflow:hidden;box-sizing:border-box;}
+  .barcode-layout.left-collapsed{grid-template-columns:56px 1fr 0.95fr;}
+.barcode-panel{background:rgba(15,23,42,0.76);border:1px solid rgba(148,163,184,0.22);border-radius:20px;box-shadow:0 18px 42px rgba(15,23,42,0.22);display:flex;flex-direction:column;overflow:hidden;min-width:0;}
+.barcode-panel-header{display:flex;align-items:center;justify-content:space-between;padding:16px 18px 12px;border-bottom:1px solid rgba(148,163,184,0.22);background:rgba(15,23,42,0.18);}
+.barcode-panel-title{font-size:12px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;}
+.barcode-panel-body{padding:14px;overflow:auto;display:flex;flex-direction:column;gap:14px;min-height:0;}
+.barcode-format-card{background:linear-gradient(180deg, rgba(99,102,241,0.1), rgba(15,23,42,0.02));border:1px solid rgba(148,163,184,0.22);border-radius:16px;padding:12px;cursor:pointer;transition:all .18s ease;display:flex;flex-direction:column;gap:10px;min-height:92px;}
+.barcode-format-card:hover{border-color:rgba(165,180,252,0.9);transform:translateY(-1px);box-shadow:0 14px 28px rgba(99,102,241,0.12);}
+.barcode-format-card.active{border-color:rgba(129,140,248,0.9);background:linear-gradient(180deg, rgba(99,102,241,0.18), rgba(99,102,241,0.04));box-shadow:0 14px 28px rgba(99,102,241,0.18);}
+.barcode-format-card-top{display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.barcode-format-card-top strong{font-size:12px;color:#e2e8f0;line-height:1.35;}
+.barcode-chip{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;background:rgba(99,102,241,0.18);color:#c7d2fe;border-radius:999px;padding:5px 8px;}
+.barcode-mini-preview{height:48px;background:rgba(255,255,255,0.92);border:1px solid rgba(148,163,184,0.25);border-radius:10px;padding:8px;display:flex;align-items:center;justify-content:center;overflow:hidden;}
+.barcode-mini-preview svg{width:100%;height:100%;max-width:118px;}
+.barcode-category{display:flex;flex-direction:column;gap:10px;}
+.barcode-category-header{display:flex;align-items:center;justify-content:space-between;font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#cbd5e1;margin-top:4px;}
+.barcode-category-items{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.barcode-input-row{display:flex;gap:8px;flex-wrap:wrap;}
+.barcode-button{border:1px solid rgba(148,163,184,0.22);border-radius:10px;padding:9px 12px;font-weight:700;font-size:12px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:all .18s ease;background:rgba(15,23,42,0.38);color:#e2e8f0;}
+.barcode-button.primary{background:linear-gradient(135deg,#4f46e5,#8b5cf6);border-color:transparent;color:#fff;box-shadow:0 12px 22px rgba(79,70,229,0.28);}
+.barcode-button.secondary{background:rgba(148,163,184,0.08);}
+.barcode-button.ghost{background:transparent;}
+.barcode-button:hover{filter:brightness(1.04);transform:translateY(-1px);}
+/* Smooth micro-interactions for buttons */
+.barcode-button{transition:background-color var(--transition-base), transform 120ms ease, box-shadow var(--transition-base);}
+.barcode-button:active{transform:translateY(0);}
+
+/* Toggle switch styling */
+.barcode-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 0;gap:12px;}
+.barcode-toggle .toggle-wrap{position:relative;width:44px;height:24px;background:var(--toggle-bg);border-radius:999px;padding:3px;display:flex;align-items:center;}
+.barcode-toggle .toggle-thumb{width:18px;height:18px;border-radius:50%;background:var(--toggle-thumb);box-shadow:0 2px 6px rgba(0,0,0,0.25);transition:transform .18s ease;}
+.barcode-toggle input[type='checkbox']{appearance:none;-webkit-appearance:none;position:absolute;left:0;top:0;width:100%;height:100%;margin:0;cursor:pointer;}
+.barcode-toggle input[type='checkbox']:checked + .toggle-wrap{background:linear-gradient(90deg,var(--accent-blue),var(--sidebar-item-active-text));}
+.barcode-toggle input[type='checkbox']:checked + .toggle-wrap .toggle-thumb{transform:translateX(20px);} 
+
+/* Color swatch styling for color inputs */
+.barcode-option input[type='color']{appearance:none;border:none;padding:0;width:44px;height:36px;border-radius:8px;cursor:pointer;}
+.barcode-option input[type='color']::-webkit-color-swatch-wrapper{padding:0;border-radius:8px;}
+.barcode-option input[type='color']::-webkit-color-swatch{border-radius:8px;border:1px solid rgba(0,0,0,0.08);}
+
+/* Skeleton for heavy preview */
+.skeleton-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;}
+.skeleton-card{background:linear-gradient(90deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02));border-radius:12px;padding:16px;min-height:140px;position:relative;overflow:hidden;}
+.skeleton-line{height:12px;background:linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.08));border-radius:6px;margin-top:8px;animation: shimmer 1.2s infinite linear;}
+@keyframes shimmer{0%{transform:translateX(-20%);}100%{transform:translateX(120%);}}
+
+/* Info banner when limiting preview */
+.preview-info{font-size:12px;color:var(--dim);padding:8px 12px;background:transparent;border-radius:8px;text-align:center;}
+.barcode-textarea{width:100%;min-height:170px;resize:vertical;border-radius:12px;border:1px solid rgba(148,163,184,0.22);background:rgba(15,23,42,0.42);color:#f8fafc;padding:12px 14px;font-size:13px;line-height:1.5;}
+.barcode-textarea:focus{outline:none;border-color:rgba(129,140,248,0.9);box-shadow:0 0 0 3px rgba(99,102,241,0.18);}
+.barcode-help{font-size:11px;color:#cbd5e1;line-height:1.6;}
+.barcode-output-toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+.barcode-output-grid{display:flex;flex-direction:column;gap:12px;min-height:140px;max-height:480px;overflow:auto;padding-right:4px;}
+.barcode-output-card{background:rgba(255,255,255,0.98);border:1px solid rgba(15,23,42,0.08);border-radius:16px;display:flex;flex-direction:column;align-items:center;padding:12px;gap:10px;min-height:180px;box-shadow:0 10px 22px rgba(15,23,42,0.08);}
+.barcode-output-card svg{width:100%;height:92px;max-width:100%;}
+.barcode-output-text{font-size:11px;text-align:center;color:#0f172a;line-height:1.4;word-break:break-word;}
+.hidden-preview{display:none !important;}
+.barcode-button:focus, .barcode-button:hover{box-shadow:0 8px 20px rgba(59,130,246,0.12);transform:translateY(-3px) scale(1.02);}
+.barcode-output-error{font-size:11px;color:#dc2626;line-height:1.4;text-align:center;}
+.barcode-empty{border:1px dashed rgba(148,163,184,0.55);border-radius:16px;padding:22px 16px;background:rgba(148,163,184,0.03);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;min-height:180px;color:#cbd5e1;text-align:center;}
+.barcode-empty-icon{font-size:28px;opacity:.8;}
+.barcode-options-wrap{display:grid;grid-template-columns:1fr;gap:10px;}
+.barcode-option{display:flex;flex-direction:column;gap:6px;font-size:12px;color:#cbd5e1;}
+.barcode-option input[type="number"], .barcode-option select, .barcode-option input[type="text"]{width:100%;background:rgba(15,23,42,0.42);border:1px solid rgba(148,163,184,0.22);padding:9px 10px;border-radius:10px;color:#f8fafc;box-sizing:border-box;}
+.barcode-option input[type="color"]{width:100%;min-height:42px;border-radius:10px;border:1px solid rgba(148,163,184,0.22);background:rgba(15,23,42,0.42);padding:4px;box-sizing:border-box;}
+.barcode-toggle{display:flex;align-items:center;justify-content:space-between;padding:8px 0;}
+.barcode-toggle input{accent-color:#8b5cf6;transform:scale(1.08);}
+.barcode-download-wrap{display:flex;flex-direction:column;gap:8px;}
+.barcode-sequence-modal{position:fixed;inset:0;background:rgba(15,23,42,0.72);display:none;align-items:center;justify-content:center;z-index:9999;padding:20px;}
+.barcode-sequence-modal.active{display:flex;}
+.barcode-sequence-box{width:min(520px,100%);background:rgba(15,23,42,0.96);border:1px solid rgba(148,163,184,0.22);border-radius:22px;padding:18px;box-shadow:0 22px 48px rgba(15,23,42,0.4);}
+.barcode-sequence-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;}
+.barcode-sequence-grid .barcode-option{font-size:11px;}
+.barcode-label{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#a5b4fc;}
+.barcode-print-view{display:none;}
+@media print{
+  body * { visibility: hidden; }
+  #barcode-print-view, #barcode-print-view * { visibility: visible; }
+  #barcode-print-view{ position: absolute; inset: 0; display: block; background: white; }
+  .barcode-print-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(2.625in, 1fr)); gap: .2in; }
+  .barcode-print-card{ display:flex; flex-direction:column; align-items:center; justify-content:center; min-height:1in; max-height:1.2in; border:1px solid #d1d5db; border-radius:8px; padding:.12in; }
+  .barcode-print-card svg{ width:100%; max-height:0.7in; }
+  .barcode-print-card .caption{ font-size:10px; text-align:center; color:#111827; }
+}
+@media (max-width: 1024px){ .barcode-layout{grid-template-columns:1fr;overflow:auto;} .barcode-sequence-grid{grid-template-columns:1fr;} }
 </style>
 </head>
 <body>
@@ -519,23 +656,43 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
   <!-- SIDEBAR -->
   <nav class="sidebar">
     <div class="nav-ico active" id="nav-dash" onclick="switchView('dashboard')" title="">
-      ⊞<span class="tooltip">Dashboard</span>
+      <div class="icon">⊞</div><div class="label-inline">Dashboard</div>
+    </div>
+    <div class="nav-ico barcode-hot" id="nav-barcode-hot" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();" title="">
+      <div class="icon">🏷️</div><div class="label-inline">Barcode</div>
     </div>
     <div class="nav-ico" id="nav-edit" onclick="switchView('editor')" title="">
-      ⚡<span class="tooltip">Studio Editor</span>
+      <div class="icon">⚡</div><div class="label-inline">Workflows</div>
     </div>
     <div class="nav-ico" id="nav-rec" onclick="switchView('recorder')" title="">
-      🎬<span class="tooltip">Macro Recorder</span>
+      <div class="icon">🎬</div><div class="label-inline">Macro Recorder</div>
     </div>
     <div class="nav-ico" id="nav-set" onclick="switchView('settings')" title="">
-      ⚙️<span class="tooltip">Settings</span>
+      <div class="icon">⚙️</div><div class="label-inline">Settings</div>
+    </div>
+    <div class="nav-ico" id="nav-barcode" onclick="switchView('barcode-generator')" title="">
+      <div class="icon">🏷️</div><div class="label-inline">Barcode Generator</div>
+    </div>
+
+    <!-- VISIBLE SIDEBAR LABELS (for discoverability) -->
+    <div class="sidebar-labels">
+      <div class="item" onclick="switchView('dashboard')">🏠 Dashboard</div>
+      <div class="item" onclick="switchView('editor')">⚡ Workflows</div>
+      <div class="item" onclick="switchView('recorder')">🎬 Macro Recorder</div>
+      <div class="item" onclick="switchView('excel-loop')">📊 Excel Loop</div>
+      <div class="item" onclick="switchView('whatsapp-bot')">💬 WhatsApp Bot</div>
+      <div class="item" onclick="switchView('flow-retur')">🔁 Flow Retur</div>
+      <div class="item" onclick="switchView('settings')">⚙️ Settings</div>
+      <div class="item active" id="sidebar-barcode-item" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();">🏷️ Barcode Generator</div>
+      <div class="item" onclick="toggleTheme()">🌓 Theme</div>
+      <div class="item" onclick="showAdbInfo()">📱 Devices</div>
     </div>
     <div class="sidebar-sep"></div>
     <div class="nav-ico" onclick="toggleTheme()" title="">
-      🌓<span class="tooltip">Toggle Theme</span>
+      <div class="icon">🌓</div><div class="label-inline">Theme</div>
     </div>
     <div class="nav-ico" onclick="showAdbInfo()" title="" style="margin-top:auto;">
-      📱<span class="tooltip">ADB Info</span>
+      <div class="icon">📱</div><div class="label-inline">Devices</div>
     </div>
   </nav>
 
@@ -550,6 +707,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
       <button class="hdr-btn primary" id="run-flow-btn" onclick="runWorkflow()">▶ RUN</button>
       <button class="hdr-btn danger"  id="stop-flow-btn" onclick="stopWorkflow()" disabled>■ STOP</button>
       <button class="hdr-btn" onclick="saveCurrentProject()">💾 Save</button>
+      <button class="hdr-btn" id="hdr-barcode-btn" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();">🏷️ Barcode</button>
     </header>
 
     <!-- DASHBOARD VIEW -->
@@ -557,6 +715,10 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
       <div class="dash-view">
         <div class="dash-title">🏠 Dashboard</div>
         <div class="dash-sub">Kelola & jalankan workflow automasi Anda</div>
+        <div class="dash-cta">
+          <div class="dash-cta-text">Buat barcode, ekspor ke SVG/PNG/PDF, dan cetak label dengan cepat.</div>
+          <button class="hdr-btn primary" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();">Buka Barcode Generator</button>
+        </div>
         <div class="dash-grid">
           <div class="dash-card" onclick="createNew(); switchView('editor')">
             <div class="dash-card-ico">➕</div>
@@ -577,6 +739,11 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
             <div class="dash-card-ico">🎬</div>
             <div class="dash-card-ttl">Macro Recorder</div>
             <div class="dash-card-sub">Rekam klik menjadi workflow</div>
+          </div>
+          <div class="dash-card" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();">
+            <div class="dash-card-ico">🏷️</div>
+            <div class="dash-card-ttl">Barcode Generator</div>
+            <div class="dash-card-sub">Buat dan ekspor barcode cepat</div>
           </div>
         </div>
         <div class="dash-summary">
@@ -599,6 +766,11 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
             <div class="dash-card-ico">📱</div>
             <div class="dash-card-ttl">ADB Devices</div>
             <div class="dash-card-sub"><span id="stat-devices">0</span></div>
+          </div>
+          <div class="dash-card" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();">
+            <div class="dash-card-ico">🏷️</div>
+            <div class="dash-card-ttl">Barcode</div>
+            <div class="dash-card-sub">Quick access</div>
           </div>
         </div>
         <div class="wf-list-wrap">
@@ -1094,6 +1266,139 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
       </div>
     </div>
 
+    <!-- BARCODE GENERATOR VIEW -->
+    <div class="view" id="barcode-generator">
+      <div class="barcode-layout">
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Select Barcode Format</div>
+            <button id="barcode-left-hide" class="barcode-button ghost" title="Hide formats" style="height:36px;display:flex;align-items:center;justify-content:center;padding:6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-format-card active" id="barcode-custom-design" onclick="selectBarcodeFormat('custom')">
+              <div class="barcode-format-card-top">
+                <strong>Custom Barcode Design</strong>
+                <span class="barcode-chip">Default</span>
+              </div>
+              <div class="barcode-mini-preview"><svg width="120" height="32" viewBox="0 0 120 32"><path d="M8 8h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm10 0h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm8 0h4v16h-4z" fill="#111827"></path></svg></div>
+            </div>
+            <div class="barcode-option">
+              <label class="barcode-label">Search</label>
+              <input id="barcode-search" type="text" placeholder="Cari tipe barcode..." oninput="renderBarcodeFormatSelector()">
+            </div>
+            <div id="barcode-format-list" class="barcode-category"></div>
+          </div>
+        </aside>
+
+        <section class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Barcode Values</div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-input-row">
+              <button class="barcode-button secondary" id="barcode-import-csv" type="button">📁 Import CSV</button>
+              <button class="barcode-button secondary" id="barcode-create-sequence" type="button">⏭ Create sequence</button>
+            </div>
+            <textarea id="barcode-values-input" class="barcode-textarea" placeholder="1234567890\nABC123\n..."></textarea>
+            <div class="barcode-help">Tekan Tab untuk menambahkan caption custom. Contoh: <strong>ABC123    Item A</strong> atau paste 2 kolom Excel (value + caption) lalu otomatis akan dipisah.</div>
+            <div class="barcode-output-toolbar">
+              <div class="barcode-button-group" style="display:flex;gap:8px;align-items:center;">
+                <button class="barcode-button ghost" id="barcode-copy-output" type="button">📋 Copy</button>
+                <button class="barcode-button ghost" id="barcode-print-labels" type="button">🖨 Print Labels</button>
+                <button class="barcode-button ghost" id="barcode-hide-toggle" type="button" title="Hide preview">🙈</button>
+                <button class="barcode-button ghost" id="barcode-play-toggle" type="button" title="Play/Pause scroll">▶</button>
+                <input id="barcode-play-speed" type="number" min="10" max="1000" value="150" style="width:84px;padding:6px;border-radius:8px;border:1px solid rgba(148,163,184,0.12);background:transparent;color:var(--text);" title="Scroll speed (px/s)">
+              </div>
+            </div>
+            <div id="barcode-preview" class="barcode-output-grid"></div>
+          </div>
+        </section>
+
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Options</div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-options-wrap">
+              <div class="barcode-toggle">
+                <span>Show Text</span>
+                <input id="barcode-show-text" type="checkbox" checked>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Maximum Display Width (px)</label>
+                <input id="barcode-max-width" type="number" value="260" min="80" max="800">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Height (px)</label>
+                <input id="barcode-height" type="number" value="80" min="20" max="400">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Margin (px)</label>
+                <input id="barcode-margin" type="number" value="10" min="0" max="80">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Color</label>
+                <input id="barcode-color" type="color" value="#111827">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Background</label>
+                <input id="barcode-bg-color" type="color" value="#ffffff">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Font Size</label>
+                <input id="barcode-font-size" type="number" value="18" min="8" max="40">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Text Alignment</label>
+                <select id="barcode-text-align">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Rotation</label>
+                <input id="barcode-rotation" type="number" value="0" min="0" max="360" step="90">
+              </div>
+              <div class="barcode-download-wrap">
+                <label class="barcode-label">Download format</label>
+                <select id="barcode-download-format">
+                  <option value="svg">SVG</option>
+                  <option value="png">PNG</option>
+                  <option value="jpeg">JPEG</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <button class="barcode-button primary" id="barcode-download-btn" type="button">⬇ Download</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+
+    <input id="barcode-csv-input" type="file" accept=".csv,.txt" style="display:none;">
+    <div id="barcode-sequence-modal" class="barcode-sequence-modal" aria-hidden="true">
+      <div class="barcode-sequence-box">
+        <div class="barcode-panel-title" style="margin-bottom:12px;">Create sequence</div>
+        <div class="barcode-sequence-grid">
+          <div class="barcode-option"><label class="barcode-label">Prefix</label><input id="sequence-prefix" type="text" value=""></div>
+          <div class="barcode-option"><label class="barcode-label">Suffix</label><input id="sequence-suffix" type="text" value=""></div>
+          <div class="barcode-option"><label class="barcode-label">Start</label><input id="sequence-start" type="number" value="1"></div>
+          <div class="barcode-option"><label class="barcode-label">Count</label><input id="sequence-count" type="number" value="10" min="1"></div>
+          <div class="barcode-option"><label class="barcode-label">Step</label><input id="sequence-step" type="number" value="1" min="1"></div>
+          <div class="barcode-option"><label class="barcode-label">Padding</label><input id="sequence-padding" type="number" value="0" min="0" max="12"></div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+          <button type="button" class="barcode-button ghost" id="barcode-sequence-cancel">Cancel</button>
+          <button type="button" class="barcode-button primary" id="barcode-sequence-apply">Apply</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="barcode-print-view" class="barcode-print-view"></div>
+
   </div><!-- /.main -->
 </div><!-- /.shell -->
 
@@ -1105,6 +1410,12 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 // BOOTSTRAP
 // ═══════════════════════════════════════════════════════════════
 const { ipcRenderer } = require('electron');
+
+// Menu -> renderer bridge: open barcode when main process requests
+ipcRenderer.on('open-barcode', () => {
+  try { switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator(); }
+  catch(e){ console.error('Failed to open barcode from menu:', e); }
+});
 
 // ─── State ────────────────────────────────────────────────────
 let project = { id: Date.now(), name: 'Untitled Flow', steps: [], edges: [] };
@@ -1482,9 +1793,18 @@ function redoAction() {
 function switchView(id) {
   document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
   document.querySelectorAll('.nav-ico').forEach(n => n.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
-  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', settings:'nav-set' };
-  if (map[id]) document.getElementById(map[id]).classList.add('active');
+  const target = document.getElementById(id);
+  if (target) target.classList.add('active');
+  const map = { dashboard:'nav-dash', editor:'nav-edit', recorder:'nav-rec', settings:'nav-set', 'barcode-generator':'nav-barcode' };
+  if (map[id]) {
+    const nav = document.getElementById(map[id]);
+    if (nav) nav.classList.add('active');
+  }
+  // also mark the hot barcode nav visible/active if present
+  if (id === 'barcode-generator') {
+    const hot = document.getElementById('nav-barcode-hot'); if (hot) hot.classList.add('active');
+    const sidebarItem = document.getElementById('sidebar-barcode-item'); if (sidebarItem) sidebarItem.classList.add('active');
+  }
 }
 
 // ─── Project Name ─────────────────────────────────────────────
@@ -3746,6 +4066,572 @@ function toggleTheme() {
   ipcRenderer.invoke('save-settings', prefs);
 }
 
+// ─── Barcode Generator ───────────────────────────────────────
+const JsBarcode = require('jsbarcode');
+const { jsPDF } = require('jspdf');
+const JSZip = require('jszip');
+
+const BARCODE_TYPE_MAP = {
+  custom: { jsBarcodeFormat: 'CODE128', validate: () => null, example: 'ABC-abc-1234' },
+  code128: { jsBarcodeFormat: 'CODE128', validate: (v) => /^[\s\S]+$/.test(v) ? null : 'Value tidak boleh kosong', example: 'ABC-abc-1234' },
+  code128a: { jsBarcodeFormat: 'CODE128A', validate: (v) => /^[A-Z0-9\s]+$/.test(v) ? null : 'Code 128A hanya huruf besar dan angka', example: 'ABC123' },
+  code128b: { jsBarcodeFormat: 'CODE128B', validate: (v) => v && v.length > 0 ? null : 'Value tidak boleh kosong', example: 'Hello World!' },
+  code128c: { jsBarcodeFormat: 'CODE128C', validate: (v) => /^\d+$/.test(v) && v.length % 2 === 0 ? null : 'Code 128C harus angka genap', example: '12345678' },
+  ean13: { jsBarcodeFormat: 'EAN13', validate: (v) => /^\d+$/.test(v) && v.length >= 12 && v.length <= 13 ? null : 'EAN-13 harus 12-13 digit angka', example: '5901234123457' },
+  ean8: { jsBarcodeFormat: 'EAN8', validate: (v) => /^\d+$/.test(v) && v.length >= 7 && v.length <= 8 ? null : 'EAN-8 harus 7-8 digit angka', example: '96385074' },
+  upca: { jsBarcodeFormat: 'UPC', validate: (v) => /^\d+$/.test(v) && v.length >= 11 && v.length <= 12 ? null : 'UPC-A harus 11-12 digit angka', example: '042100005264' },
+  code39: { jsBarcodeFormat: 'CODE39', validate: (v) => /^[A-Z0-9\-.$/+%\s]+$/.test(v) ? null : 'Code 39 hanya karakter yang diperbolehkan', example: 'CODE39' },
+  itf14: { jsBarcodeFormat: 'ITF14', validate: (v) => /^\d+$/.test(v) && v.length % 2 === 0 ? null : 'ITF14 harus digit genap', example: '10012345000017' },
+  msi: { jsBarcodeFormat: 'MSI', validate: (v) => /^\d+$/.test(v) ? null : 'MSI hanya angka', example: '1234567' },
+  pharmacode: { jsBarcodeFormat: 'pharmacode', validate: (v) => /^\d+$/.test(v) && Number(v) >= 3 && Number(v) <= 131070 ? null : 'Pharmacode harus angka 3-131070', example: '12345' },
+  codabar: { jsBarcodeFormat: 'codabar', validate: (v) => /^[A-D0-9\-.$/:+\s]+$/.test(v) ? null : 'Codabar hanya karakter yang diperbolehkan', example: 'A123456A' },
+  gs1_128: { jsBarcodeFormat: 'CODE128', validate: (v) => v && v.length > 0 ? null : 'GS1-128 tidak boleh kosong', example: '(01)09521234543213(3103)000123' },
+  qr: { jsBarcodeFormat: 'QR', validate: (v) => v && v.length > 0 ? null : 'QR tidak boleh kosong', example: 'https://rba.app' },
+  datamatrix: { jsBarcodeFormat: 'DATAMATRIX', validate: (v) => v && v.length > 0 ? null : 'Data Matrix tidak boleh kosong', example: 'RBA-123' }
+};
+
+const BARCODE_FORMATS = [
+  { id: 'custom', title: 'Custom Barcode Design', category: 'Popular', example: 'ABC-abc-1234' },
+  { id: 'code128', title: 'Code 128', category: 'Code 128', example: 'ABC-abc-1234' },
+  { id: 'code128a', title: 'Code 128A', category: 'Code 128', example: 'ABC123' },
+  { id: 'code128b', title: 'Code 128B', category: 'Code 128', example: 'Hello World!' },
+  { id: 'code128c', title: 'Code 128C', category: 'Code 128', example: '12345678' },
+  { id: 'gs1_128', title: 'GS1-128', category: 'Code 128', example: '(01)09521234543213(3103)000123' },
+  { id: 'ean13', title: 'EAN-13', category: 'EAN / UPC', example: '5901234123457' },
+  { id: 'ean8', title: 'EAN-8', category: 'EAN / UPC', example: '96385074' },
+  { id: 'upca', title: 'UPC-A', category: 'EAN / UPC', example: '042100005264' },
+  { id: 'code39', title: 'Code 39', category: 'Code 39 / Code 93', example: 'CODE39' },
+  { id: 'itf14', title: 'ITF (Interleaved 2 of 5)', category: 'ITF', example: '10012345000017' },
+  { id: 'msi', title: 'MSI', category: 'MSI', example: '1234567' },
+  { id: 'pharmacode', title: 'Pharmacode', category: 'Pharmacode', example: '12345' },
+  { id: 'codabar', title: 'Codabar', category: 'Codabar', example: 'A123456A' },
+  { id: 'qr', title: 'QR Code', category: '2D', example: 'https://rba.app' },
+  { id: 'datamatrix', title: 'Data Matrix', category: '2D', example: 'RBA-123' }
+];
+
+const barcodeState = {
+  selectedFormat: 'custom',
+  search: '',
+  entries: [],
+  options: {
+    showText: true,
+    maxWidth: 260,
+    height: 80,
+    margin: 10,
+    color: '#111827',
+    background: '#ffffff',
+    fontSize: 18,
+    textAlign: 'center',
+    rotation: 0
+  }
+};
+
+function normalizeBarcodeValue(value, formatId) {
+  let text = String(value || '').trim();
+  if (!text) return '';
+  if (formatId === 'gs1_128') {
+    return parseGS1Input(text);
+  }
+  return text;
+}
+
+function parseGS1Input(raw) {
+  let text = String(raw || '').trim();
+  if (!text) return '';
+  text = text.replace(/\s+/g, '');
+  const aiMatches = [...text.matchAll(/\((\d{2,4})\)/g)];
+  if (!aiMatches.length) return text;
+  let result = '';
+  let cursor = 0;
+  for (const match of aiMatches) {
+    const idx = match.index;
+    const ai = match[1];
+    if (idx > cursor) {
+      result += text.slice(cursor, idx);
+    }
+    result += '\u00f1' + ai + ' '; 
+    cursor = idx + match[0].length;
+  }
+  if (cursor < text.length) {
+    result += text.slice(cursor);
+  }
+  return result.replace(/\s+/g, '').replace(/\u00f1+/g, '\u00f1');
+}
+
+function validateValue(v, formatId) {
+  const validator = (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).validate;
+  if (!v || !String(v).trim()) return 'Value tidak boleh kosong';
+  return validator(String(v).trim()) || null;
+}
+
+function ensureBarcodeEntries() {
+  if (!barcodeState.entries.length) {
+    barcodeState.entries = [{ id: crypto.randomUUID ? crypto.randomUUID() : 'entry-' + Date.now(), value: BARCODE_TYPE_MAP[barcodeState.selectedFormat].example || 'ABC123', caption: '', error: null }];
+  }
+  return barcodeState.entries;
+}
+
+function parseBarcodeTextarea() {
+  const textarea = document.getElementById('barcode-values-input');
+  if (!textarea) return;
+  const raw = textarea.value || '';
+  const lines = raw.split(/\r?\n/).filter(line => line.trim() !== '');
+  if (!lines.length) {
+    barcodeState.entries = [];
+    return;
+  }
+  barcodeState.entries = lines.map((line) => {
+    const parts = line.split('\t');
+    const value = (parts[0] || '').trim();
+    const caption = (parts[1] || '').trim();
+    const error = validateValue(value, barcodeState.selectedFormat);
+    return { id: crypto.randomUUID ? crypto.randomUUID() : 'entry-' + Date.now(), value, caption, error };
+  });
+  barcodeState.entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!barcodeState.entries.length) {
+    barcodeState.entries = [{ id: crypto.randomUUID ? crypto.randomUUID() : 'entry-' + Date.now(), value: '', caption: '', error: 'Value tidak boleh kosong' }];
+  }
+}
+
+function serializeEntriesToTextarea() {
+  const textarea = document.getElementById('barcode-values-input');
+  if (!textarea) return;
+  textarea.value = barcodeState.entries
+    .map((entry) => {
+      const value = String(entry.value || '').trim();
+      const caption = String(entry.caption || '').trim();
+      if (!value) return '';
+      return caption ? value + '\t' + caption : value;
+    })
+    .filter(Boolean)
+    .join('\n');
+}
+
+function renderBarcodeFormatSelector() {
+  var search = (document.getElementById('barcode-search') || { value: '' }).value.toLowerCase();
+  var list = document.getElementById('barcode-format-list');
+  if (!list) return;
+  var categories = {};
+  BARCODE_FORMATS.forEach(function(format) {
+    var match = format.title.toLowerCase().includes(search) || format.category.toLowerCase().includes(search) || format.id.toLowerCase().includes(search);
+    if (!match) return;
+    if (!categories[format.category]) categories[format.category] = [];
+    categories[format.category].push(format);
+  });
+  var htmlParts = [];
+  Object.keys(categories).forEach(function(category) {
+    var items = categories[category];
+    var itemHtml = '';
+    items.forEach(function(item) {
+      var activeClass = barcodeState.selectedFormat === item.id ? 'active' : '';
+      itemHtml += '<div class="barcode-format-card ' + activeClass + '" data-format="' + item.id + '" onclick="selectBarcodeFormat(\'' + item.id + '\')">' +
+        '<div class="barcode-format-card-top"><strong>' + item.title + '</strong></div>' +
+        '<div class="barcode-mini-preview">' + renderMiniBarcode(item.example || '', item.id) + '</div>' +
+        '</div>';
+    });
+    htmlParts.push('<div class="barcode-category"><div class="barcode-category-header"><span>' + category + '</span><span>' + items.length + '</span></div><div class="barcode-category-items">' + itemHtml + '</div></div>');
+  });
+  list.innerHTML = htmlParts.join('');
+  var customCard = document.getElementById('barcode-custom-design');
+  if (customCard) {
+    customCard.classList.toggle('active', barcodeState.selectedFormat === 'custom');
+  }
+}
+
+function renderMiniBarcode(value, formatId) {
+  if (!value) return '<span style="color:#475569;font-size:11px;">N/A</span>';
+  var normalized = normalizeBarcodeValue(value, formatId || barcodeState.selectedFormat);
+  var safeFormat = formatId === 'custom' ? 'CODE128' : (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).jsBarcodeFormat;
+  var svgId = 'mini-' + formatId + '-' + Math.random().toString(16).slice(2);
+  setTimeout(() => {
+    try {
+      const el = document.getElementById(svgId);
+      if (el && typeof JsBarcode === 'function') {
+        JsBarcode(el, normalized, { format: safeFormat, displayValue: false, background: '#ffffff', lineColor: '#111827', width: 1.5, height: 28, margin: 4 });
+      }
+    } catch (e) {}
+  }, 0);
+  return '<svg id="' + svgId + '" xmlns="http://www.w3.org/2000/svg" width="120" height="32" viewBox="0 0 120 32"></svg>';
+}
+
+function updateBarcodeOptionsFromInput() {
+  barcodeState.options.showText = document.getElementById('barcode-show-text').checked;
+  barcodeState.options.maxWidth = Number(document.getElementById('barcode-max-width').value || 260);
+  barcodeState.options.height = Number(document.getElementById('barcode-height').value || 80);
+  barcodeState.options.margin = Number(document.getElementById('barcode-margin').value || 10);
+  barcodeState.options.color = document.getElementById('barcode-color').value || '#111827';
+  barcodeState.options.background = document.getElementById('barcode-bg-color').value || '#ffffff';
+  barcodeState.options.fontSize = Number(document.getElementById('barcode-font-size').value || 18);
+  barcodeState.options.textAlign = document.getElementById('barcode-text-align').value || 'center';
+  barcodeState.options.rotation = Number(document.getElementById('barcode-rotation').value || 0);
+}
+
+function createBarcodeSvg(value, caption, formatId) {
+  const safeFormat = formatId === 'custom' ? 'CODE128' : (BARCODE_TYPE_MAP[formatId] || BARCODE_TYPE_MAP.code128).jsBarcodeFormat;
+  const normalizedValue = normalizeBarcodeValue(value, formatId || barcodeState.selectedFormat);
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  svg.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+  svg.setAttribute('viewBox', '0 0 320 180');
+  svg.setAttribute('width', '100%');
+  svg.setAttribute('height', '100%');
+  const options = {
+    format: safeFormat,
+    // Always disable JsBarcode's own display text; we render caption/value ourselves
+    displayValue: false,
+    text: normalizedValue,
+    fontSize: barcodeState.options.fontSize,
+    height: barcodeState.options.height,
+    width: Math.max(1.2, Math.min(3.2, Math.max(1, barcodeState.options.maxWidth / 180))),
+    margin: barcodeState.options.margin,
+    background: barcodeState.options.background,
+    lineColor: barcodeState.options.color,
+    textAlign: barcodeState.options.textAlign,
+    textMargin: 8,
+    fontOptions: '',
+    flat: false,
+    rotation: barcodeState.options.rotation
+  };
+  if (formatId === 'gs1_128') {
+    options.text = normalizedValue;
+  }
+  if (formatId === 'qr' || formatId === 'datamatrix') {
+    const parent = document.createElement('div');
+    parent.style.width = '100%';
+    parent.style.display = 'flex';
+    parent.style.justifyContent = 'center';
+    parent.style.alignItems = 'center';
+    parent.style.height = '100%';
+    parent.innerHTML = formatId === 'qr' ? '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text x="60" y="60" text-anchor="middle" font-size="12" fill="#111827">QR</text></svg>' : '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120"><text x="60" y="60" text-anchor="middle" font-size="12" fill="#111827">DM</text></svg>';
+    return parent;
+  }
+  try {
+    JsBarcode(svg, normalizedValue, options);
+  } catch (e) {
+    const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', '160');
+    text.setAttribute('y', '100');
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('fill', '#dc2626');
+    text.setAttribute('font-size', '12');
+    text.textContent = 'Invalid value';
+    svg.appendChild(text);
+  }
+  return svg;
+}
+
+function renderBarcodePreview() {
+  const preview = document.getElementById('barcode-preview');
+  if (!preview) return;
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) {
+    preview.innerHTML = '<div class="barcode-empty">' +
+      '<div class="barcode-empty-icon">📦</div>' +
+      '<div><strong>Barcode Values masih kosong</strong></div>' +
+      '<div>Masukkan value pertama Anda untuk mulai membuat barcode.</div>' +
+      '</div>';
+    return;
+  }
+
+  preview.innerHTML = entries.map((entry) => {
+    const formatId = barcodeState.selectedFormat || 'custom';
+    const validationError = validateValue(entry.value, formatId);
+    const safeValue = normalizeBarcodeValue(entry.value, formatId);
+    const captionText = entry.caption || safeValue;
+    const wrapper = document.createElement('div');
+    wrapper.className = 'barcode-output-card';
+    try {
+      const svg = createBarcodeSvg(entry.value, entry.caption, formatId);
+      wrapper.appendChild(svg);
+    } catch (err) {
+      wrapper.innerHTML = '<div style="color:#dc2626;font-weight:600;">Preview failed</div>';
+    }
+    const label = document.createElement('div');
+    label.className = 'barcode-output-text';
+    label.textContent = captionText || safeValue || 'No value';
+    wrapper.appendChild(label);
+    if (validationError) {
+      const errorNode = document.createElement('div');
+      errorNode.className = 'barcode-output-error';
+      errorNode.textContent = validationError;
+      wrapper.appendChild(errorNode);
+    }
+    return wrapper.outerHTML;
+  }).join('');
+}
+
+function selectBarcodeFormat(formatId) {
+  barcodeState.selectedFormat = formatId;
+  const currentEntries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (currentEntries.length) {
+    barcodeState.entries = currentEntries.map((entry) => ({ ...entry, error: validateValue(entry.value, formatId) }));
+  } else {
+    barcodeState.entries = [];
+  }
+  serializeEntriesToTextarea();
+  renderBarcodeFormatSelector();
+  renderBarcodePreview();
+}
+
+function syncBarcodeTextareaToState() {
+  parseBarcodeTextarea();
+  renderBarcodePreview();
+}
+
+function assignBarcodeOptionsToInputs() {
+  const el = (id) => document.getElementById(id);
+  el('barcode-show-text').checked = barcodeState.options.showText;
+  el('barcode-max-width').value = barcodeState.options.maxWidth;
+  el('barcode-height').value = barcodeState.options.height;
+  el('barcode-margin').value = barcodeState.options.margin;
+  el('barcode-color').value = barcodeState.options.color;
+  el('barcode-bg-color').value = barcodeState.options.background;
+  el('barcode-font-size').value = barcodeState.options.fontSize;
+  el('barcode-text-align').value = barcodeState.options.textAlign;
+  el('barcode-rotation').value = barcodeState.options.rotation;
+}
+
+function initBarcodeGenerator() {
+  assignBarcodeOptionsToInputs();
+  renderBarcodeFormatSelector();
+  const textarea = document.getElementById('barcode-values-input');
+  if (textarea) {
+    const txt = String(textarea.value || '').trim();
+    if (!txt) {
+      barcodeState.entries = [];
+    } else {
+      barcodeState.entries = textarea.value.split(/\r?\n/).filter(Boolean).map((line) => ({
+        id: crypto.randomUUID ? crypto.randomUUID() : 'entry-' + Date.now(),
+        value: (line.split('\t')[0] || '').trim(),
+        caption: (line.split('\t')[1] || '').trim(),
+        error: null
+      }));
+    }
+  }
+  selectBarcodeFormat('custom');
+  renderBarcodePreview();
+
+  document.getElementById('barcode-show-text').addEventListener('change', () => {
+    updateBarcodeOptionsFromInput();
+    renderBarcodePreview();
+  });
+  ['barcode-max-width', 'barcode-height', 'barcode-margin', 'barcode-color', 'barcode-bg-color', 'barcode-font-size', 'barcode-text-align', 'barcode-rotation'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', () => {
+      updateBarcodeOptionsFromInput();
+      renderBarcodePreview();
+    });
+    document.getElementById(id).addEventListener('change', () => {
+      updateBarcodeOptionsFromInput();
+      renderBarcodePreview();
+    });
+  });
+
+  const valuesEditor = document.getElementById('barcode-values-input');
+  if (valuesEditor) {
+    valuesEditor.addEventListener('input', () => {
+      let timeout = valuesEditor.dataset.debounce;
+      if (timeout) clearTimeout(timeout);
+      timeout = setTimeout(() => {
+        syncBarcodeTextareaToState();
+      }, 200);
+      valuesEditor.dataset.debounce = timeout;
+    });
+  }
+
+  document.getElementById('barcode-import-csv').addEventListener('click', () => {
+    document.getElementById('barcode-csv-input').click();
+  });
+
+  document.getElementById('barcode-csv-input').addEventListener('change', (event) => {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (loadEvent) => {
+      const text = String(loadEvent.target.result || '');
+      const textarea = document.getElementById('barcode-values-input');
+      if (textarea) {
+        textarea.value = text.replace(/\r/g, '').trim();
+        syncBarcodeTextareaToState();
+      }
+    };
+    reader.readAsText(file);
+  });
+
+  document.getElementById('barcode-copy-output').addEventListener('click', async () => {
+    const svgList = [...document.querySelectorAll('#barcode-preview svg')];
+    if (!svgList.length) return;
+    const blob = new Blob([new XMLSerializer().serializeToString(svgList[0])], { type: 'image/svg+xml' });
+    const item = new ClipboardItem({ 'image/svg+xml': blob });
+    try {
+      await navigator.clipboard.write([item]);
+      addLog('Barcode SVG copied to clipboard', 'success');
+    } catch (e) {
+      addLog('Clipboard tidak didukung pada browser ini', 'warn');
+    }
+  });
+
+  document.getElementById('barcode-create-sequence').addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    if (modal) modal.classList.add('active');
+  });
+
+  document.getElementById('barcode-sequence-cancel').addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    if (modal) modal.classList.remove('active');
+  });
+
+  document.getElementById('barcode-sequence-apply').addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    const prefixEl = container && container.querySelector('#sequence-prefix');
+    const suffixEl = container && container.querySelector('#sequence-suffix');
+    const startEl = container && container.querySelector('#sequence-start');
+    const countEl = container && container.querySelector('#sequence-count');
+    const stepEl = container && container.querySelector('#sequence-step');
+    const paddingEl = container && container.querySelector('#sequence-padding');
+
+    const prefix = prefixEl ? prefixEl.value || '' : '';
+    const suffix = suffixEl ? suffixEl.value || '' : '';
+    const start = Number(startEl ? startEl.value : 1) || 1;
+    const count = Number(countEl ? countEl.value : 10) || 10;
+    const step = Number(stepEl ? stepEl.value : 1) || 1;
+    const padding = Number(paddingEl ? paddingEl.value : 0) || 0;
+    const values = generateSequence({ prefix, start, count, step, padding, suffix });
+    const textarea = container && container.querySelector('#barcode-values-input');
+    if (textarea) {
+      textarea.value = values.join('\n');
+      syncBarcodeTextareaToState();
+    }
+    if (modal) modal.classList.remove('active');
+  });
+
+  document.getElementById('barcode-download-btn').addEventListener('click', () => {
+    const format = document.getElementById('barcode-download-format').value;
+    performBarcodeDownload(format);
+  });
+
+  document.getElementById('barcode-print-labels').addEventListener('click', () => {
+    renderPrintLabels();
+    window.print();
+  });
+}
+
+function generateSequence({ prefix, start, count, step, padding, suffix }) {
+  const values = [];
+  let current = Number(start) || 1;
+  for (let i = 0; i < (Number(count) || 1); i++) {
+    const raw = String(current);
+    const padded = padding > 0 ? raw.padStart(Number(padding), '0') : raw;
+    values.push(String(prefix || '') + padded + String(suffix || ''));
+    current += Number(step) || 1;
+  }
+  return values;
+}
+
+function performBarcodeDownload(format) {
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) return;
+  if (format === 'pdf') {
+    const { jsPDF } = require('jspdf');
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    entries.forEach((entry, index) => {
+      if (index > 0) doc.addPage();
+      const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+      const serialized = new XMLSerializer().serializeToString(svg);
+      const blob = new Blob([serialized], { type: 'image/svg+xml' });
+      const url = URL.createObjectURL(blob);
+      const image = new Image();
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        canvas.width = 600;
+        canvas.height = 200;
+        const ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+        const dataUrl = canvas.toDataURL('image/png');
+        doc.addImage(dataUrl, 'PNG', 20, 30, 170, 80);
+        if (index === entries.length - 1) {
+          doc.save('barcode-export.pdf');
+        }
+      };
+      image.src = url;
+    });
+    return;
+  }
+
+  const zip = new JSZip();
+  entries.forEach((entry, idx) => {
+    const safe = normalizeBarcodeValue(entry.value, barcodeState.selectedFormat);
+    const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+    const xml = new XMLSerializer().serializeToString(svg);
+    const fileName = 'barcode-' + String(idx + 1).padStart(3, '0') + '.' + format;
+    if (format === 'svg') {
+      zip.file(fileName, xml);
+    } else {
+      const blob = svgToBlob(xml, format);
+      zip.file(fileName, blob);
+    }
+  });
+
+  if (entries.length === 1 && format !== 'svg') {
+    const svg = createBarcodeSvg(entries[0].value, entries[0].caption, barcodeState.selectedFormat);
+    const blob = svgToBlob(new XMLSerializer().serializeToString(svg), format);
+    triggerDownload(blob, 'barcode-export.' + format);
+    return;
+  }
+
+  zip.generateAsync({ type: 'blob' }).then((content) => {
+    triggerDownload(content, 'barcode-export.zip');
+  });
+}
+
+function svgToBlob(svgString, format) {
+  const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
+  if (format === 'svg') return svgBlob;
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(svgBlob);
+    const image = new Image();
+    image.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 1000;
+      canvas.height = 300;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        URL.revokeObjectURL(url);
+        resolve(blob);
+      }, format === 'jpeg' ? 'image/jpeg' : 'image/png', 0.92);
+    };
+    image.src = url;
+  });
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 400);
+}
+
+function renderPrintLabels() {
+  const view = document.getElementById('barcode-print-view');
+  if (!view) return;
+  const entries = barcodeState.entries.filter((entry) => entry.value && entry.value.trim());
+  if (!entries.length) return;
+  view.innerHTML = '<div class="barcode-print-grid">' + entries.map((entry) => {
+    const svg = createBarcodeSvg(entry.value, entry.caption, barcodeState.selectedFormat);
+    const xml = new XMLSerializer().serializeToString(svg);
+    const displayText = entry.caption || entry.value;
+    return '<div class="barcode-print-card">' + xml + '<div class="caption">' + displayText + '</div></div>';
+  }).join('') + '</div>';
+}
+
 // ─── Settings ────────────────────────────────────────────────
 async function loadPrefs() {
   const s = await ipcRenderer.invoke('get-settings');
@@ -3862,7 +4748,7 @@ window.addEventListener('keydown', e => {
 </body>
 </html>`;
 
-app.whenReady().then(createWindow);
+app.whenReady().then(() => { createWindow(); setupAppMenu(); });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 

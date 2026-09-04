@@ -507,19 +507,31 @@ function initBarcodeGenerator() {
   });
 
   const seqBtn = document.getElementById('barcode-create-sequence');
-  if (seqBtn) seqBtn.addEventListener('click', () => { const modal = document.getElementById('barcode-sequence-modal'); if (modal) modal.classList.add('active'); });
-  const seqCancel = document.getElementById('barcode-sequence-cancel'); if (seqCancel) seqCancel.addEventListener('click', () => { document.getElementById('barcode-sequence-modal').classList.remove('active'); });
-  const seqApply = document.getElementById('barcode-sequence-apply'); if (seqApply) seqApply.addEventListener('click', () => {
-    const prefix = document.getElementById('sequence-prefix').value || '';
-    const suffix = document.getElementById('sequence-suffix').value || '';
-    const start = Number(document.getElementById('sequence-start').value || 1);
-    const count = Number(document.getElementById('sequence-count').value || 10);
-    const step = Number(document.getElementById('sequence-step').value || 1);
-    const padding = Number(document.getElementById('sequence-padding').value || 0);
+  if (seqBtn) seqBtn.addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    if (modal) modal.classList.add('active');
+  });
+  const seqCancel = document.getElementById('barcode-sequence-cancel');
+  if (seqCancel) seqCancel.addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    if (modal) modal.classList.remove('active');
+  });
+  const seqApply = document.getElementById('barcode-sequence-apply');
+  if (seqApply) seqApply.addEventListener('click', () => {
+    const container = document.getElementById('barcode-generator');
+    const prefix = container && container.querySelector('#sequence-prefix') ? container.querySelector('#sequence-prefix').value : '';
+    const suffix = container && container.querySelector('#sequence-suffix') ? container.querySelector('#sequence-suffix').value : '';
+    const start = Number(container && container.querySelector('#sequence-start') ? container.querySelector('#sequence-start').value : 1);
+    const count = Number(container && container.querySelector('#sequence-count') ? container.querySelector('#sequence-count').value : 10);
+    const step = Number(container && container.querySelector('#sequence-step') ? container.querySelector('#sequence-step').value : 1);
+    const padding = Number(container && container.querySelector('#sequence-padding') ? container.querySelector('#sequence-padding').value : 0);
     const values = generateSequence({ prefix, start, count, step, padding, suffix });
-    const textarea = document.getElementById('barcode-values-input');
+    const textarea = container && container.querySelector('#barcode-values-input');
     if (textarea) { textarea.value = values.join('\n'); syncBarcodeTextareaToState(); }
-    document.getElementById('barcode-sequence-modal').classList.remove('active');
+    const modal = container && container.querySelector('#barcode-sequence-modal');
+    if (modal) modal.classList.remove('active');
   });
 
   const downloadBtn = document.getElementById('barcode-download-btn');
@@ -527,6 +539,15 @@ function initBarcodeGenerator() {
 
   const printBtn = document.getElementById('barcode-print-labels');
   if (printBtn) printBtn.addEventListener('click', () => { renderPrintLabels(); window.print(); });
+  const hideBtn = document.getElementById('barcode-hide-toggle');
+  const previewEl = document.getElementById('barcode-preview');
+  if (hideBtn && previewEl) {
+    hideBtn.addEventListener('click', () => {
+      const hidden = previewEl.classList.toggle('hidden-preview');
+      hideBtn.textContent = hidden ? '👁️‍🗨️' : '🙈';
+      hideBtn.title = hidden ? 'Show preview' : 'Hide preview';
+    });
+  }
 }
 
 function generateSequence({ prefix, start, count, step, padding, suffix }) {

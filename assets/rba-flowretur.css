@@ -1,8 +1,5 @@
-/* FIX: Provide a packaged fallback stylesheet for Flow Retur UI so missing CSS no longer leaves the panel blocking the sidebar. */
+/* Flow Retur should follow the shared view toggling system instead of being hard-locked hidden. */
 #flow-retur {
-  display: none !important;
-  pointer-events: none !important;
-  visibility: hidden !important;
   min-width: 0 !important;
   min-height: 0 !important;
 }

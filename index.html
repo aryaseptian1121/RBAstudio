@@ -224,8 +224,10 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
 .hdr-btn.danger{background:var(--accent-red);color:var(--btn-primary-text);border-color:transparent;}
 
 /* ── VIEWS ───────────────────────────────────────── */
-.view{display:none;flex:1;overflow:hidden;position:relative;z-index:0;}
-.view.active{display:flex;flex-direction:column;position:relative;z-index:1;}
+.view{display:none;flex:1;overflow:hidden;position:relative;z-index:0;visibility:hidden;pointer-events:none;}
+.view.active,
+.view.page-entering,
+.view.page-exiting{display:flex;flex-direction:column;position:relative;z-index:1;visibility:visible;pointer-events:auto;}
 
 @media (prefers-reduced-motion: no-preference) {
   .view.page-entering {
@@ -587,6 +589,9 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     <div class="nav-ico active" id="nav-dash" onclick="switchView('dashboard')" title="">
       ⊞<span class="nav-ico-label">Dashboard</span>
     </div>
+    <div class="nav-ico" id="nav-barcode" onclick="switchView('barcode-generator')" title="">
+      🏷️<span class="nav-ico-label">Barcode</span>
+    </div>
     <div class="nav-ico" id="nav-edit" onclick="switchView('editor')" title="">
       ⚡<span class="nav-ico-label">Workflows</span>
     </div>
@@ -677,6 +682,14 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <div class="quick-card-title">New Workflow</div>
               <div class="quick-card-sub">Buat flow baru dari awal.</div>
             </div>
+            <div class="dash-card quick-card" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();" title="Open Barcode Generator">
+              <div class="quick-card-header">
+                <div class="quick-icon barcode">🏷️</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Barcode Generator</div>
+              <div class="quick-card-desc">Generate & export barcode labels</div>
+            </div>
             <div class="dash-card quick-card" onclick="document.getElementById('fileInput').click()">
               <div class="quick-card-header">
                 <div class="quick-icon import-json">⬆</div>
@@ -756,6 +769,154 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
         </div>
       </div>
     </div>
+
+    <!-- BARCODE GENERATOR VIEW -->
+    <div class="view" id="barcode-generator">
+      <div class="barcode-layout">
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Select Barcode Format</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="barcode-button ghost" id="barcode-left-hide" title="Hide formats">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-format-card active" id="barcode-custom-design" onclick="selectBarcodeFormat('custom')">
+              <div class="barcode-format-card-top">
+                <strong>Custom Barcode Design</strong>
+                <span class="barcode-chip">Default</span>
+              </div>
+              <div class="barcode-mini-preview"><svg width="120" height="32" viewBox="0 0 120 32"><path d="M8 8h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm10 0h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm8 0h4v16h-4z" fill="#111827"></path></svg></div>
+            </div>
+            <div class="barcode-option">
+              <label class="barcode-label">Search</label>
+              <input id="barcode-search" type="text" placeholder="Cari tipe barcode..." oninput="renderBarcodeFormatSelector()">
+            </div>
+            <div id="barcode-format-list" class="barcode-category"></div>
+          </div>
+        </aside>
+
+        <section class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Barcode Values</div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-input-row">
+              <button class="barcode-button secondary" id="barcode-import-csv" type="button">📁 Import CSV</button>
+              <button class="barcode-button secondary" id="barcode-create-sequence" type="button">⏭ Create sequence</button>
+            </div>
+            <textarea id="barcode-values-input" class="barcode-textarea" placeholder="1234567890
+ABC123
+..."></textarea>
+            <div class="barcode-help">Tekan Tab untuk menambahkan caption custom. Contoh: <strong>ABC123    Item A</strong> atau paste 2 kolom Excel (value + caption) lalu otomatis akan dipisah.</div>
+            <div class="barcode-output-toolbar">
+              <div class="barcode-button-group" style="display:flex;gap:8px;align-items:center;">
+                  <button class="barcode-button ghost" id="barcode-copy-output" type="button" title="Copy">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/><rect x="2" y="2" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/></svg>
+                  </button>
+                  <button class="barcode-button ghost" id="barcode-print-labels" type="button" title="Print Labels">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9V2h12v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="9" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/></svg>
+                  </button>
+                  <button class="barcode-button ghost" id="barcode-hide-toggle" type="button" title="Hide preview">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/></svg>
+                  </button>
+                  <button class="barcode-button ghost" id="barcode-play-toggle" type="button" title="Play/Pause scroll">
+                    <svg id="barcode-play-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3v18l15-9L5 3z" fill="currentColor"/></svg>
+                  </button>
+                  <input id="barcode-play-speed" type="number" min="10" max="1000" value="150" style="width:84px;padding:6px;border-radius:8px;border:1px solid rgba(148,163,184,0.12);background:transparent;color:var(--text);" title="Scroll speed (px/s)">
+                </div>
+            </div>
+            <div id="barcode-preview" class="barcode-output-grid"></div>
+          </div>
+        </section>
+
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Options</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button class="barcode-button ghost" id="barcode-right-hide" title="Hide options">🙈</button>
+            </div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-options-wrap">
+              <div class="barcode-toggle">
+                <span>Show Text</span>
+                <input id="barcode-show-text" type="checkbox" checked>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Maximum Display Width (px)</label>
+                <input id="barcode-max-width" type="number" value="260" min="80" max="800">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Height (px)</label>
+                <input id="barcode-height" type="number" value="80" min="20" max="400">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Margin (px)</label>
+                <input id="barcode-margin" type="number" value="10" min="0" max="80">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Color</label>
+                <input id="barcode-color" type="color" value="#111827">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Background</label>
+                <input id="barcode-bg-color" type="color" value="#ffffff">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Font Size</label>
+                <input id="barcode-font-size" type="number" value="18" min="8" max="40">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Text Alignment</label>
+                <select id="barcode-text-align">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Rotation</label>
+                <input id="barcode-rotation" type="number" value="0" min="0" max="360" step="90">
+              </div>
+              <div class="barcode-download-wrap">
+                <label class="barcode-label">Download format</label>
+                <select id="barcode-download-format">
+                  <option value="svg">SVG</option>
+                  <option value="png">PNG</option>
+                  <option value="jpeg">JPEG</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <button class="barcode-button primary" id="barcode-download-btn" type="button">⬇ Download</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div id="barcode-sequence-modal" class="barcode-sequence-modal" aria-hidden="true">
+        <div class="barcode-sequence-box">
+          <div class="barcode-panel-title" style="margin-bottom:12px;">Create sequence</div>
+          <div class="barcode-sequence-grid">
+            <div class="barcode-option"><label class="barcode-label">Prefix</label><input id="sequence-prefix" type="text" value=""></div>
+            <div class="barcode-option"><label class="barcode-label">Suffix</label><input id="sequence-suffix" type="text" value=""></div>
+            <div class="barcode-option"><label class="barcode-label">Start</label><input id="sequence-start" type="number" value="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Count</label><input id="sequence-count" type="number" value="10" min="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Step</label><input id="sequence-step" type="number" value="1" min="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Padding</label><input id="sequence-padding" type="number" value="0" min="0" max="12"></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+            <button type="button" class="barcode-button ghost" id="barcode-sequence-cancel">Cancel</button>
+            <button type="button" class="barcode-button primary" id="barcode-sequence-apply">Apply</button>
+          </div>
+        </div>
+      </div>
+      <div id="barcode-print-view" class="barcode-print-view"></div>
+    </div>
+
+    <input id="barcode-csv-input" type="file" accept=".csv,.txt" style="display:none;">
 
     <!-- EDITOR VIEW -->
     <div class="view" id="editor">
@@ -1566,7 +1727,7 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
     <div class="view" id="whatsapp-bot"></div>
 
     <!-- FLOW RETUR VIEW -->
-    <div class="view" id="flow-retur" style="display:none !important; visibility:hidden !important; pointer-events:none !important;">
+    <div class="view" id="flow-retur">
       <div class="fr-section" style="padding:18px;display:flex;gap:14px;flex-direction:column;flex:1;min-height:0;overflow:auto;">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
           <div>

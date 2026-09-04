@@ -7,6 +7,7 @@ const { exec, execSync, spawn } = require("child_process");
 const fs   = require("fs");
 const path = require("path");
 const os   = require("os");
+const util = require('util');
 // NEW: set custom Puppeteer cache dir relative to app resources,
 // agar tidak bergantung pada os.homedir() milik user device lain
 const puppeteerCacheDir = app.isPackaged
@@ -56,6 +57,7 @@ function resolveChromeExecutable() {
 
 const { Client, LocalAuth } = require('whatsapp-web.js');
 const qrcode = require('qrcode');
+const { resolveGroupByCP } = require('./src/whatsappBot/groupResolver');
 const XLSX = require('xlsx');
 const { ExcelLoopEngine } = require('./src/services/ExcelLoopEngine');
 const WinAuto = require('./src/services/WindowsAutomation');
@@ -2052,14 +2054,20 @@ ipcMain.handle('load-flow', async (event, id) => {
 
 ipcMain.handle('wa-connect', async (event) => {
   try {
+    console.log('[WA] Starting WhatsApp connection...');
+    
     if (waClient) {
       try {
+        console.log('[WA] Destroying previous client...');
         await waClient.destroy();
       } catch (error) {
-        // ignore
+        console.warn('[WA] Error destroying previous client:', error.message);
       }
       waClient = null;
     }
+
+    const chromeExePath = resolveChromeExecutable();
+    console.log('[WA] Using Chrome at:', chromeExePath);
 
     waClient = new Client({
       authStrategy: new LocalAuth({
@@ -2067,45 +2075,78 @@ ipcMain.handle('wa-connect', async (event) => {
         dataPath: waSessionPath
       }),
       puppeteer: {
-        executablePath: resolveChromeExecutable(),
+        executablePath: chromeExePath,
         headless: true,
-        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage']
-      }
+        args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu'],
+        timeout: 30000
+      },
+      restartOnAuthFail: true,
+      qrTimeoutMs: 0
     });
 
-    console.log('[WA] Client created with session persistence at:', waSessionPath);
+    console.log('[WA] Client configured, initializing...');
 
     waClient.on('qr', async (qr) => {
       try {
+        console.log('[WA] QR code received');
         const img = await qrcode.toDataURL(qr, { width: 300, margin: 2 });
         event.sender.send('wa-qr', img);
       } catch (error) {
-        console.error('[wa] Failed to render QR:', error);
+        console.error('[WA] Failed to render QR:', error.message);
+        try {
+          event.sender.send('wa-error', { message: 'QR error: ' + error.message });
+        } catch (e) {
+          // ignore
+        }
       }
     });
 
     waClient.on('ready', () => {
       try {
+        console.log('[WA] Client ready, account:', waClient.info?.pushname || 'unknown');
         event.sender.send('wa-connected', {
           name: waClient.info.pushname,
           number: waClient.info.wid.user
         });
       } catch (error) {
-        console.error('[wa] Failed to emit ready event:', error);
+        console.error('[WA] Failed to emit ready event:', error.message);
+      }
+    });
+    
+    waClient.on('auth_failure', (msg) => {
+      console.error('[WA] Auth failed:', msg);
+      try {
+        event.sender.send('wa-error', { message: 'Auth failed: ' + msg });
+      } catch (e) {
+        // ignore
       }
     });
 
     waClient.on('disconnected', (reason) => {
+      console.log('[WA] Disconnected:', reason);
       try {
-        event.sender.send('wa-disconnected', reason);
+        event.sender.send('wa-disconnected', { reason });
       } catch (error) {
-        console.error('[wa] Failed to emit disconnect event:', error);
+        console.error('[WA] Failed to emit disconnect event:', error.message);
+      }
+    });
+    
+    waClient.on('error', (err) => {
+      console.error('[WA] Client error:', err.message);
+      try {
+        event.sender.send('wa-error', { message: 'Error: ' + err.message });
+      } catch (e) {
+        // ignore
       }
     });
 
+    console.log('[WA] Initializing client...');
     await waClient.initialize();
+    console.log('[WA] Connection successful');
     return { ok: true };
   } catch (error) {
+    console.error('[WA] Connection failed:', error.message);
+    waClient = null;
     return { ok: false, message: error.message || String(error) };
   }
 });
@@ -2123,23 +2164,125 @@ ipcMain.handle('wa-disconnect', async () => {
   }
 });
 
+// Helper: robust getChats with retries and detailed logging
+async function safeGetChats(attempts = 3, baseDelayMs = 1000) {
+  if (!waClient) throw new Error('waClient not initialized');
+  let lastError = null;
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    try {
+      const chats = await waClient.getChats();
+      if (Array.isArray(chats)) return chats;
+      // unexpected non-array, treat as error
+      throw new Error('waClient.getChats() returned non-array');
+    } catch (err) {
+      lastError = err;
+      try {
+        // Log as much detail as possible
+        console.error(`[WA] safeGetChats attempt ${attempt + 1} failed:`, err && (err.stack || err.message || JSON.stringify(err, Object.getOwnPropertyNames(err))));
+      } catch (logErr) {
+        console.error('[WA] safeGetChats logging failed:', logErr);
+      }
+
+      // Try to trigger UI to force lazy-loaded chats to render before fallback
+      try {
+        await triggerUIInteractionForLazyLoad();
+        await waitForWWebJS(3000);
+      } catch (uiErr) {
+        // ignore
+      }
+
+      // Fallback: try resilient per-chat loader using in-page evaluation
+      try {
+        if (waClient && waClient.pupPage) {
+          console.log('[WA] Attempting getChatsResilient fallback via pupPage');
+          const resilient = await (async function() {
+            const result = await waClient.pupPage.evaluate(async () => {
+              try {
+                const chats = window.WAWebCollections ? window.WAWebCollections.Chat.getModelsArray() : (window.Store && window.Store.Chat ? window.Store.Chat.models : []);
+                const okChats = [];
+                const failedChats = [];
+                for (const chat of chats) {
+                  try {
+                    const model = await window.WWebJS.getChatModel(chat);
+                    okChats.push(model);
+                  } catch (errInner) {
+                    failedChats.push({ id: chat?.id?._serialized || chat?.id || 'unknown', name: chat?.formattedTitle || chat?.name || '(no name)', errorMessage: errInner?.message || String(errInner) });
+                  }
+                }
+                return { okChats, failedChats, totalChats: chats.length };
+              } catch (e) {
+                return { okChats: [], failedChats: [{ error: String(e) }], totalChats: 0 };
+              }
+            });
+
+            if (result && Array.isArray(result.okChats)) {
+              return result.okChats.map(chat => ({ id: chat.id, name: chat.formattedTitle || chat.name || '', isGroup: Boolean(chat.isGroup) }));
+            }
+            return [];
+          })();
+
+          if (Array.isArray(resilient) && resilient.length) {
+            console.log(`[WA] getChatsResilient returned ${resilient.length} chats`);
+            return resilient;
+          }
+        }
+      } catch (fallbackErr) {
+        console.error('[WA] getChatsResilient fallback failed:', fallbackErr && (fallbackErr.stack || fallbackErr.message || String(fallbackErr)));
+      }
+
+      if (attempt < attempts - 1) {
+        await sleep(baseDelayMs * (attempt + 1));
+      }
+    }
+  }
+
+  console.error(`[WA] safeGetChats ultimately failed after ${attempts} attempts:`, lastError && (lastError.stack || lastError.message || String(lastError)));
+  // Return empty array to avoid crashing higher-level logic; callers should handle empty groups
+  return [];
+}
+
 ipcMain.handle('wa-get-groups', async () => {
   if (!waClient) {
     return { ok: false, message: 'WhatsApp belum terhubung' };
   }
-
   try {
-    const chats = await waClient.getChats();
-    const groups = chats
-      .filter((chat) => chat.isGroup)
+    const chats = await safeGetChats();
+    const groups = (chats || [])
+      .filter((chat) => chat.isGroup && chat.name)
       .map((chat) => ({
         id: chat.id?._serialized || chat.id,
         name: chat.name || 'Grup Tanpa Nama',
         memberCount: chat.groupMetadata?.participants?.length || 0
-      }));
+      }))
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+
     return { ok: true, groups };
   } catch (error) {
-    return { ok: false, message: error.message || String(error) };
+    try {
+      console.error('[WA] wa-get-groups failed:', util.inspect(error, { showHidden: true, depth: null }));
+    } catch (e) {
+      console.error('[WA] wa-get-groups failed (inspect error):', e);
+    }
+    return { ok: false, message: error && (error.message || String(error)) };
+  }
+});
+
+// DEBUG: Dump chats summary for troubleshooting group matching
+ipcMain.handle('wa-debug-dump-chats', async () => {
+  if (!waClient) return { ok: false, message: 'waClient not initialized' };
+  try {
+    const chats = await safeGetChats();
+    const summary = (chats || []).slice(0, 200).map((chat) => ({
+      id: chat.id?._serialized || chat.id || null,
+      name: chat.name || null,
+      isGroup: Boolean(chat.isGroup),
+      memberCount: chat.groupMetadata?.participants?.length || 0,
+      archived: !!chat.archived
+    }));
+    return { ok: true, count: (chats || []).length, sample: summary };
+  } catch (err) {
+    console.error('[WA] wa-debug-dump-chats error:', err && (err.stack || err.message || String(err)));
+    return { ok: false, message: err && (err.message || String(err)) };
   }
 });
 
@@ -2158,13 +2301,104 @@ function loadGroupIdsConfig() {
   }
 }
 
+function saveGroupIdsMap(chatCache) {
+  try {
+    const configDir = path.join(process.cwd(), 'config');
+    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
+    const configPath = path.join(configDir, 'group-ids.json');
+    const existing = fs.existsSync(configPath) ? JSON.parse(fs.readFileSync(configPath, 'utf8') || '{}') : {};
+    const merged = { ...existing };
+    for (const [name, chat] of Object.entries(chatCache || {})) {
+      const id = typeof chat.id === 'string' ? chat.id : (chat.id?._serialized || chat.id || String(chat.id));
+      merged[name] = id;
+    }
+    fs.writeFileSync(configPath, JSON.stringify(merged, null, 2), 'utf8');
+    console.log('[WA] Saved group-ids.json with', Object.keys(merged).length, 'entries');
+  } catch (err) {
+    console.warn('[WA] Failed to save group-ids.json:', err && (err.message || String(err)));
+  }
+}
+
+// Helper: normalize group name for fuzzy matching
+function normalizeForMatching(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/[_\-\.]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+// Try to interact with the WA Web UI to force lazy-loaded chat list to render
+async function triggerUIInteractionForLazyLoad() {
+  if (!waClient || !waClient.pupPage) return;
+  try {
+    const clicked = await waClient.pupPage.evaluate(() => {
+      const selectors = [
+        '[data-testid="chat-list"]',
+        '#pane-side',
+        'div[role="grid"]',
+        'div[aria-label="Chat list"]',
+        '[data-testid="scrollable-chat-list"]'
+      ];
+      const fallback = [
+        'header [role="button"]',
+        '[data-testid="menu"]',
+        '[aria-label="Menu"]',
+        'span[data-icon="menu"]',
+        'div[aria-label="Profile"]'
+      ];
+
+      const findAndClick = (list) => {
+        for (const sel of list) {
+          const el = document.querySelector(sel);
+          if (el) {
+            try { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch(e){}
+            try { el.click(); } catch(e){}
+            return sel;
+          }
+        }
+        return null;
+      };
+
+      return findAndClick(selectors) || findAndClick(fallback);
+    });
+
+    if (clicked) {
+      console.log('[WA] triggerUIInteractionForLazyLoad clicked selector:', clicked);
+      await sleep(1200);
+    } else {
+      console.warn('[WA] triggerUIInteractionForLazyLoad: no selector found');
+    }
+  } catch (err) {
+    console.warn('[WA] triggerUIInteractionForLazyLoad failed:', err && (err.message || String(err)));
+  }
+}
+
+// Wait for window.WWebJS.getChats to be available in page (used before resilient loads)
+async function waitForWWebJS(timeoutMs = 10000) {
+  if (!waClient || !waClient.pupPage) return;
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const ok = await waClient.pupPage.evaluate(() => Boolean(window.WWebJS && typeof window.WWebJS.getChats === 'function'));
+      if (ok) return true;
+    } catch (_) {}
+    await sleep(500);
+  }
+  return false;
+}
+
 ipcMain.handle('wa-send-logic-fix', async (event, { groupName = '', cpName = '', awbs = [], statuses = {}, message = '' }) => {
   if (!waClient) {
     return { ok: false, message: 'WhatsApp tidak terhubung' };
   }
 
+  const targetGroupName = String(groupName || '').trim();
+  if (!targetGroupName) {
+    return { ok: false, message: 'Nama grup kosong' };
+  }
+
   try {
-    const targetGroupName = String(groupName || '').trim();
     const groupIdsConfig = loadGroupIdsConfig();
     const directGroupId = groupIdsConfig[targetGroupName];
 
@@ -2175,13 +2409,76 @@ ipcMain.handle('wa-send-logic-fix', async (event, { groupName = '', cpName = '',
         id: { _serialized: String(directGroupId) },
         name: targetGroupName
       };
+      console.log(`[WA] Found group via cached ID: ${targetGroupName}`);
     } else {
-      const chats = await waClient.getChats();
-      targetChat = chats.find((chat) => chat.isGroup && String(chat.name || '').trim() === targetGroupName);
+      // Fetch chats with retry for robustness
+      let chats = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          chats = await safeGetChats();
+          break;
+        } catch (err) {
+          try {
+            console.warn(`[WA] getChats attempt ${attempt + 1} failed:`, util.inspect(err, { showHidden: true, depth: null }));
+          } catch (e) {
+            console.warn('[WA] getChats attempt failed, non-inspectable error');
+          }
+          if (attempt < 2) await sleep(1000);
+        }
+      }
+      
+      if (!chats) {
+        return { ok: false, message: 'Gagal fetch grup dari WhatsApp (3x coba)' };
+      }
+      // Try resolver-based matching using CP name if available (more robust)
+      if (cpName) {
+        try {
+          const resolved = resolveGroupByCP(cpName, chats);
+          if (resolved && resolved.found) {
+            targetChat = resolved.group;
+            console.log(`[WA] resolveGroupByCP matched '${cpName}' -> '${targetChat.name}' (strategy=${resolved.strategy}, ambiguous=${Boolean(resolved.ambiguous)})`);
+            if (resolved.ambiguous && Array.isArray(resolved.allMatches)) {
+              console.warn('[WA] resolveGroupByCP ambiguous matches:', resolved.allMatches.map(m => m.name).slice(0,10));
+            }
+          }
+        } catch (resolverErr) {
+          console.warn('[WA] resolveGroupByCP failed:', resolverErr && (resolverErr.message || String(resolverErr)));
+        }
+      }
+
+      // Fallback: normalized exact or fuzzy match on provided groupName
+      if (!targetChat) {
+        const normalizedTarget = normalizeForMatching(targetGroupName);
+        // Strategy A: Exact match after normalization
+        targetChat = chats.find((chat) => chat.isGroup && normalizeForMatching(chat.name) === normalizedTarget);
+
+        // Strategy B: Fuzzy match - all words found in group name
+        if (!targetChat) {
+          const targetWords = normalizedTarget.split(/\s+/).filter(Boolean);
+          if (targetWords.length > 0) {
+            const fuzzyMatches = chats.filter((chat) => {
+              if (!chat.isGroup) return false;
+              const normalizedName = normalizeForMatching(chat.name);
+              return targetWords.every((word) => normalizedName.includes(word));
+            });
+
+            if (fuzzyMatches.length === 1) {
+              targetChat = fuzzyMatches[0];
+              console.log(`[WA] Fuzzy matched: "${targetChat.name}"`);
+            } else if (fuzzyMatches.length > 1) {
+              targetChat = fuzzyMatches.reduce((prev, curr) => {
+                return normalizeForMatching(curr.name).length < normalizeForMatching(prev.name) ? curr : prev;
+              });
+              console.log(`[WA] Fuzzy matched (best of ${fuzzyMatches.length}): "${targetChat.name}"`);
+            }
+          }
+        }
+      }
     }
 
     if (!targetChat) {
-      return { ok: false, message: `Grup "${targetGroupName}" tidak ditemukan di WhatsApp` };
+      console.warn(`[WA] Group not found: "${targetGroupName}"`);
+      return { ok: false, message: `Grup "${targetGroupName}" tidak ditemukan` };
     }
 
     const customMessage = String(message || '').trim();
@@ -2211,9 +2508,32 @@ ipcMain.handle('wa-send-logic-fix', async (event, { groupName = '', cpName = '',
     })();
 
     const groupId = targetChat.id?._serialized || targetChat.id;
-    await waClient.sendMessage(groupId, textToSend);
-    return { ok: true, groupId, groupName: targetGroupName, cpName: String(cpName || '').trim() };
+    
+    // Retry mechanism: 3 attempts
+    let success = false;
+    let lastError = null;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await waClient.sendMessage(groupId, textToSend);
+        success = true;
+        console.log(`[WA] Sent to "${targetGroupName}" (${awbs.length} AWB)`);
+        break;
+      } catch (err) {
+        lastError = err;
+        console.error(`[WA] Send attempt ${attempt + 1} failed:`, err.message);
+        if (attempt < 2) await sleep(1000);
+      }
+    }
+    
+    if (!success) {
+      const errorMsg = lastError.message || String(lastError);
+      console.error(`[WA] Failed to send to "${targetGroupName}": ${errorMsg}`);
+      return { ok: false, message: `Gagal kirim: ${errorMsg}` };
+    }
+    
+    return { ok: true, groupId, groupName: targetGroupName, cpName: String(cpName || '').trim(), awbCount: Array.isArray(awbs) ? awbs.length : 0 };
   } catch (error) {
+    console.error('[WA] wa-send-logic-fix error:', error.message);
     return { ok: false, message: error.message || String(error) };
   }
 });
@@ -2227,12 +2547,41 @@ ipcMain.handle('wa-parse-excel', async (event, filePath) => {
     }
 
     const wb = XLSX.readFile(filePath);
-    const sheetName = wb.SheetNames[0];
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+    
+    // Smart sheet selection: prefer 'Data' or 'data' sheet, else use first sheet
+    let sheetName = wb.SheetNames[0];
+    const dataSheets = wb.SheetNames.filter(name => name.toLowerCase() === 'data');
+    if (dataSheets.length > 0) {
+      sheetName = dataSheets[0];
+    }
+    
+    const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, defval: '' });
+    
+    // Filter out completely empty rows for more robust parsing
+    const rows = rawRows.filter((row) => 
+      row && Array.isArray(row) && row.some((cell) => cell && String(cell).trim())
+    );
+    
+    if (rows.length === 0) {
+      return { ok: false, message: 'File Excel kosong atau tidak ada data valid' };
+    }
+    
     const headers = rows[0] || [];
     const data = rows.slice(1);
-    return { ok: true, headers, data, totalRows: data.length, sheetName };
+    
+    console.log(`[EXCEL] Parsed ${data.length} rows from "${sheetName}" sheet`);
+    
+    return { 
+      ok: true, 
+      headers, 
+      data, 
+      totalRows: data.length, 
+      sheetName,
+      totalSheets: wb.SheetNames.length,
+      sheetNames: wb.SheetNames 
+    };
   } catch (error) {
+    console.error('[EXCEL] Parse failed:', error.message);
     return { ok: false, message: error.message || String(error) };
   }
 });
@@ -2254,6 +2603,9 @@ ipcMain.handle('wa-run', async (event, { recipients = [], template = '', options
   const delayMax = parseInt(options.delayMax, 10) || 15000;
   const randomDelay = () => delayMin + Math.floor(Math.random() * (delayMax - delayMin + 1));
 
+  // Track sent recipients to prevent duplicates
+  const sentRecipients = new Set();
+
   waEngine = {
     running: true,
     paused: false,
@@ -2264,7 +2616,18 @@ ipcMain.handle('wa-run', async (event, { recipients = [], template = '', options
     checkpoint: []
   };
 
-  const validRecipients = recipients.filter((item) => item && (item.valid !== false));
+  const validRecipients = recipients.filter((item) => {
+    if (!item || item.valid === false) return false;
+    
+    // Deduplication: skip if already sent
+    const recipientKey = item.id || item.normalized || String(item);
+    if (sentRecipients.has(recipientKey)) {
+      console.warn('[WA] Skipping duplicate recipient:', recipientKey);
+      return false;
+    }
+    sentRecipients.add(recipientKey);
+    return true;
+  });
 
   for (let i = 0; i < validRecipients.length; i++) {
     if (waEngine.stopped) break;
@@ -2273,8 +2636,9 @@ ipcMain.handle('wa-run', async (event, { recipients = [], template = '', options
     }
 
     const recipient = validRecipients[i];
-    const displayName = recipient.displayName || recipient.id || recipient.normalized || 'Penerima';
-    send('current', { index: i, name: displayName, id: recipient.id || recipient.normalized || '' });
+    const recipientId = recipient.id || recipient.normalized || '';
+    const displayName = recipient.displayName || recipientId || 'Penerima';
+    send('current', { index: i, name: displayName, id: recipientId });
 
     const message = resolveTemplateVars(template, recipient.rowData || {});
     const chatId = recipient.type === 'group'
@@ -2282,14 +2646,41 @@ ipcMain.handle('wa-run', async (event, { recipients = [], template = '', options
       : `${String(recipient.normalized || recipient.id || '').replace(/\+/g, '')}@c.us`;
 
     try {
-      await waClient.sendMessage(chatId, message);
-      waEngine.processed += 1;
-      waEngine.checkpoint.push({ id: recipient.id || recipient.normalized || '', status: 'success', time: new Date().toISOString() });
-      send('success', { index: i, id: recipient.id || recipient.normalized || '', processed: waEngine.processed });
+      let success = false;
+      let lastError = null;
+      
+      // Retry mechanism: 3 attempts
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await waClient.sendMessage(chatId, message);
+          success = true;
+          break;
+        } catch (err) {
+          lastError = err;
+          if (attempt < 2) {
+            await sleep(1000);
+          }
+        }
+      }
+      
+      if (success) {
+        waEngine.processed += 1;
+        waEngine.checkpoint.push({ id: recipientId, status: 'success', time: new Date().toISOString() });
+        console.log(`[WA] OK: sent to ${recipientId}`);
+        send('success', { index: i, id: recipientId, processed: waEngine.processed });
+      } else {
+        waEngine.failed += 1;
+        const errorMsg = lastError.message || String(lastError);
+        waEngine.checkpoint.push({ id: recipientId, status: 'failed', error: errorMsg, time: new Date().toISOString() });
+        console.error(`[WA] FAIL: ${recipientId} - ${errorMsg}`);
+        send('failed', { index: i, id: recipientId, failed: waEngine.failed, error: errorMsg });
+      }
     } catch (error) {
       waEngine.failed += 1;
-      waEngine.checkpoint.push({ id: recipient.id || recipient.normalized || '', status: 'failed', error: error.message || String(error), time: new Date().toISOString() });
-      send('failed', { index: i, id: recipient.id || recipient.normalized || '', failed: waEngine.failed, error: error.message || String(error) });
+      const errorMsg = error.message || String(error);
+      waEngine.checkpoint.push({ id: recipientId, status: 'failed', error: errorMsg, time: new Date().toISOString() });
+      console.error(`[WA] ERROR: ${recipientId} - ${errorMsg}`);
+      send('failed', { index: i, id: recipientId, failed: waEngine.failed, error: errorMsg });
     }
 
     if (i < validRecipients.length - 1) {
