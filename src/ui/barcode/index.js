@@ -182,8 +182,14 @@
 
   function initBarcodeGenerator(){
     try{
-      // Ensure modal and related helpers live inside the barcode view to avoid leaking across routes
       const barcodeView = document.getElementById('barcode-generator');
+      if (barcodeView && barcodeView.dataset.barcodeInit === 'true') {
+        if (document.getElementById('barcode-play-toggle') && document.getElementById('barcode-play-toggle').dataset.bound === 'true') {
+          return;
+        }
+      }
+      
+      // Ensure modal and related helpers live inside the barcode view to avoid leaking across routes
       const modal = document.getElementById('barcode-sequence-modal');
       const csvInput = document.getElementById('barcode-csv-input');
       const printView = document.getElementById('barcode-print-view');
@@ -191,6 +197,7 @@
         try{ if(modal && modal.parentNode !== barcodeView) barcodeView.appendChild(modal); }catch(e){}
         try{ if(csvInput && csvInput.parentNode !== barcodeView) barcodeView.appendChild(csvInput); }catch(e){}
         try{ if(printView && printView.parentNode !== barcodeView) barcodeView.appendChild(printView); }catch(e){}
+        barcodeView.dataset.barcodeInit = 'true';
       }
 
       // Fix potential escaped-newline placeholders (literal "\\n") in textarea
@@ -205,6 +212,12 @@
   }
 
   function assignDefaultsAndWire(){
+    const root = document.getElementById('barcode-generator');
+    if (root && root.dataset.barcodeBound === 'true') {
+      return;
+    }
+    if (root) root.dataset.barcodeBound = 'true';
+
     assignBarcodeOptionsToInputs();
     const textarea = document.getElementById('barcode-values-input'); if(textarea){ textarea.addEventListener('input', debounce(()=>{ parseBarcodeTextarea(); renderBarcodePreview(); },200)); }
     const search = document.getElementById('barcode-search'); if(search) search.addEventListener('input', debounce(()=> renderBarcodeFormatSelector(),150));
@@ -284,32 +297,40 @@
     const PAUSE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="4" width="4" height="16" fill="currentColor"/><rect x="14" y="4" width="4" height="16" fill="currentColor"/></svg>';
     function stopAutoPlay(){ isAutoPlaying = false; if(rafRef.id) cancelAnimationFrame(rafRef.id); rafRef.id = null; if(playBtn) playBtn.innerHTML = PLAY_SVG; }
     function startAutoPlay(){ if(isAutoPlaying) return; isAutoPlaying = true; if(playBtn) playBtn.innerHTML = PAUSE_SVG; let last = performance.now(); const step = (now)=>{ const previewEl = document.getElementById('barcode-preview'); if(!previewEl) return stopAutoPlay(); const delta = (now - last)/1000; last = now; const speed = Number(speedInput && speedInput.value ? Number(speedInput.value) : autoScrollSpeed); previewEl.scrollTop = Math.min(previewEl.scrollHeight - previewEl.clientHeight, previewEl.scrollTop + speed * delta); if(previewEl.scrollTop + previewEl.clientHeight >= previewEl.scrollHeight - 1){ stopAutoPlay(); return; } rafRef.id = requestAnimationFrame(step); }; rafRef.id = requestAnimationFrame(step); }
-    if(playBtn) playBtn.addEventListener('click', ()=>{ if(isAutoPlaying) stopAutoPlay(); else startAutoPlay(); });
+    if(playBtn) playBtn.addEventListener('click', ()=>{
+      if(isAutoPlaying) stopAutoPlay(); else startAutoPlay();
+    });
     if(speedInput) speedInput.addEventListener('input', ()=>{ /* value read in startAutoPlay loop */ });
     // left panel hide/collapse wiring (new left-hide button)
     const leftHide = document.getElementById('barcode-left-hide');
     const layout = document.querySelector('.barcode-layout');
     if (leftHide && layout) {
-      leftHide.addEventListener('click', () => {
-        layout.classList.toggle('left-collapsed');
-        // update icon rotation to indicate collapsed state
-        if (layout.classList.contains('left-collapsed')) {
-          leftHide.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        } else {
-          leftHide.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
-        }
-      });
+      if (leftHide.dataset.bound !== 'true') {
+        leftHide.addEventListener('click', () => {
+          layout.classList.toggle('left-collapsed');
+          // update icon rotation to indicate collapsed state
+          if (layout.classList.contains('left-collapsed')) {
+            leftHide.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+          } else {
+            leftHide.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+          }
+        });
+        leftHide.dataset.bound = 'true';
+      }
     }
     // right panel hide wiring
     const rightHide = document.getElementById('barcode-right-hide');
     if (rightHide && layout) {
-      rightHide.addEventListener('click', () => {
-        layout.classList.toggle('right-collapsed');
-        const hidden = layout.classList.contains('right-collapsed');
-        rightHide.title = hidden ? 'Show options' : 'Hide options';
-        // swap icon (eye vs eye-off) using inline SVG
-        rightHide.innerHTML = hidden ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.97 10.97 0 0 0 21 12c-2.9-4.5-7.6-7-9-7-1.4 0-6.1 2.5-9 7a10.97 10.97 0 0 0 3.06 5.94" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 1l22 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/></svg>';
-      });
+      if (rightHide.dataset.bound !== 'true') {
+        rightHide.addEventListener('click', () => {
+          layout.classList.toggle('right-collapsed');
+          const hidden = layout.classList.contains('right-collapsed');
+          rightHide.title = hidden ? 'Show options' : 'Hide options';
+          // swap icon (eye vs eye-off) using inline SVG
+          rightHide.innerHTML = hidden ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.97 10.97 0 0 0 21 12c-2.9-4.5-7.6-7-9-7-1.4 0-6.1 2.5-9 7a10.97 10.97 0 0 0 3.06 5.94" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 1l22 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>' : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/></svg>';
+        });
+        rightHide.dataset.bound = 'true';
+      }
     }
     // hide/show preview wiring
     const hideToggle = document.getElementById('barcode-hide-toggle');

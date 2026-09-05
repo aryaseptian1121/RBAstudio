@@ -776,11 +776,9 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
         <aside class="barcode-panel">
           <div class="barcode-panel-header">
             <div class="barcode-panel-title">Select Barcode Format</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button class="barcode-button ghost" id="barcode-left-hide" title="Hide formats">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-              </button>
-            </div>
+            <button id="barcode-left-hide" class="barcode-button ghost" title="Hide formats" style="height:36px;display:flex;align-items:center;justify-content:center;padding:6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
           </div>
           <div class="barcode-panel-body">
             <div class="barcode-format-card active" id="barcode-custom-design" onclick="selectBarcodeFormat('custom')">
@@ -807,26 +805,16 @@ header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);d
               <button class="barcode-button secondary" id="barcode-import-csv" type="button">📁 Import CSV</button>
               <button class="barcode-button secondary" id="barcode-create-sequence" type="button">⏭ Create sequence</button>
             </div>
-            <textarea id="barcode-values-input" class="barcode-textarea" placeholder="1234567890
-ABC123
-..."></textarea>
+            <textarea id="barcode-values-input" class="barcode-textarea" placeholder="1234567890\nABC123\n..."></textarea>
             <div class="barcode-help">Tekan Tab untuk menambahkan caption custom. Contoh: <strong>ABC123    Item A</strong> atau paste 2 kolom Excel (value + caption) lalu otomatis akan dipisah.</div>
             <div class="barcode-output-toolbar">
               <div class="barcode-button-group" style="display:flex;gap:8px;align-items:center;">
-                  <button class="barcode-button ghost" id="barcode-copy-output" type="button" title="Copy">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="9" y="9" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/><rect x="2" y="2" width="13" height="13" rx="2" stroke="currentColor" stroke-width="2"/></svg>
-                  </button>
-                  <button class="barcode-button ghost" id="barcode-print-labels" type="button" title="Print Labels">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9V2h12v7" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="9" width="18" height="13" rx="2" stroke="currentColor" stroke-width="2"/></svg>
-                  </button>
-                  <button class="barcode-button ghost" id="barcode-hide-toggle" type="button" title="Hide preview">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/></svg>
-                  </button>
-                  <button class="barcode-button ghost" id="barcode-play-toggle" type="button" title="Play/Pause scroll">
-                    <svg id="barcode-play-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3v18l15-9L5 3z" fill="currentColor"/></svg>
-                  </button>
-                  <input id="barcode-play-speed" type="number" min="10" max="1000" value="150" style="width:84px;padding:6px;border-radius:8px;border:1px solid rgba(148,163,184,0.12);background:transparent;color:var(--text);" title="Scroll speed (px/s)">
-                </div>
+                <button class="barcode-button ghost" id="barcode-copy-output" type="button">📋 Copy</button>
+                <button class="barcode-button ghost" id="barcode-print-labels" type="button">🖨 Print Labels</button>
+                <button class="barcode-button ghost" id="barcode-hide-toggle" type="button" title="Hide preview">🙈</button>
+                <button class="barcode-button ghost" id="barcode-play-toggle" type="button" title="Play/Pause scroll">▶</button>
+                <input id="barcode-play-speed" type="number" min="10" max="1000" value="150" style="width:84px;padding:6px;border-radius:8px;border:1px solid rgba(148,163,184,0.12);background:transparent;color:var(--text);" title="Scroll speed (px/s)">
+              </div>
             </div>
             <div id="barcode-preview" class="barcode-output-grid"></div>
           </div>
@@ -835,9 +823,7 @@ ABC123
         <aside class="barcode-panel">
           <div class="barcode-panel-header">
             <div class="barcode-panel-title">Options</div>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button class="barcode-button ghost" id="barcode-right-hide" title="Hide options">🙈</button>
-            </div>
+            <button class="barcode-button ghost" id="barcode-right-hide" title="Hide options" style="height:36px;display:flex;align-items:center;justify-content:center;padding:6px;">🙈</button>
           </div>
           <div class="barcode-panel-body">
             <div class="barcode-options-wrap">

@@ -150,6 +150,8 @@ const barcodeState = {
   }
 };
 
+let barcodePlayback = { playing: false, rafId: null };
+
 function normalizeBarcodeValue(value, formatId) {
   let text = String(value || '').trim();
   if (!text) return '';
@@ -547,6 +549,75 @@ function initBarcodeGenerator() {
       hideBtn.textContent = hidden ? '👁️‍🗨️' : '🙈';
       hideBtn.title = hidden ? 'Show preview' : 'Hide preview';
     });
+  }
+
+  const playBtn = document.getElementById('barcode-play-toggle');
+  const speedInput = document.getElementById('barcode-play-speed');
+  const PLAY_SVG = '<svg id="barcode-play-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M5 3v18l15-9L5 3z" fill="currentColor"/></svg>';
+  const PAUSE_SVG = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="6" y="4" width="4" height="16" fill="currentColor"/><rect x="14" y="4" width="4" height="16" fill="currentColor"/></svg>';
+
+  function stopAutoPlay() {
+    barcodePlayback.playing = false;
+    if (barcodePlayback.rafId) cancelAnimationFrame(barcodePlayback.rafId);
+    barcodePlayback.rafId = null;
+    if (playBtn) playBtn.innerHTML = PLAY_SVG;
+  }
+
+  function startAutoPlay() {
+    if (barcodePlayback.playing) return;
+    barcodePlayback.playing = true;
+    if (playBtn) playBtn.innerHTML = PAUSE_SVG;
+
+    let last = performance.now();
+    const step = (now) => {
+      const currentPreview = document.getElementById('barcode-preview');
+      if (!currentPreview) return stopAutoPlay();
+      const delta = (now - last) / 1000;
+      last = now;
+      const speed = Number(speedInput && speedInput.value ? Number(speedInput.value) : 150);
+      currentPreview.scrollTop = Math.min(currentPreview.scrollHeight - currentPreview.clientHeight, currentPreview.scrollTop + speed * delta);
+      if (currentPreview.scrollTop + currentPreview.clientHeight >= currentPreview.scrollHeight - 1) {
+        stopAutoPlay();
+        return;
+      }
+      barcodePlayback.rafId = requestAnimationFrame(step);
+    };
+    barcodePlayback.rafId = requestAnimationFrame(step);
+  }
+
+  if (playBtn && !playBtn.dataset.bound) {
+    playBtn.addEventListener('click', () => {
+      if (barcodePlayback.playing) stopAutoPlay();
+      else startAutoPlay();
+    });
+    playBtn.dataset.bound = 'true';
+  }
+
+  const leftHide = document.getElementById('barcode-left-hide');
+  const rightHide = document.getElementById('barcode-right-hide');
+  const layout = document.querySelector('.barcode-layout');
+
+  if (leftHide && layout && !leftHide.dataset.bound) {
+    leftHide.addEventListener('click', () => {
+      layout.classList.toggle('left-collapsed');
+      const collapsed = layout.classList.contains('left-collapsed');
+      leftHide.innerHTML = collapsed
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M9 18l6-6-6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18l-6-6 6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+    });
+    leftHide.dataset.bound = 'true';
+  }
+
+  if (rightHide && layout && !rightHide.dataset.bound) {
+    rightHide.addEventListener('click', () => {
+      layout.classList.toggle('right-collapsed');
+      const hidden = layout.classList.contains('right-collapsed');
+      rightHide.title = hidden ? 'Show options' : 'Hide options';
+      rightHide.innerHTML = hidden
+        ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M17.94 17.94A10.97 10.97 0 0 0 21 12c-2.9-4.5-7.6-7-9-7-1.4 0-6.1 2.5-9 7a10.97 10.97 0 0 0 3.06 5.94" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M1 1l22 22" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+        : '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5"/></svg>';
+    });
+    rightHide.dataset.bound = 'true';
   }
 }
 
