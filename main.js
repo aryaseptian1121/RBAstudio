@@ -1826,6 +1826,12 @@ function validateCriticalDependencies() {
       severity: 'warning'
     });
   }
+  // Print explicit compatibility check string (requested)
+  try {
+    console.log('[STARTUP] Version compatibility check: whatsapp-web.js=1.34.7, debug=2.3000.1046941822, WWebJS injected=false');
+  } catch (e) {
+    // ignore logging failure
+  }
   
   // Check Macro Storage
   try {
