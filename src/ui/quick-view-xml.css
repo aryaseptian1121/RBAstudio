@@ -1,0 +1,304 @@
+.quickview-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  justify-content: center;
+  background: rgba(7, 12, 24, 0.88);
+  backdrop-filter: blur(10px);
+  z-index: 9999;
+  padding: 24px;
+  overflow: auto;
+}
+
+.quickview-modal-backdrop.hidden {
+  display: none;
+}
+
+.quickview-panel {
+  width: min(1200px, 100%);
+  height: 85vh; /* fixed modal height to create predictable layout */
+  display: flex;
+  flex-direction: column;
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.45);
+  overflow: hidden; /* children handle their own scrolling */
+}
+
+.quickview-panel-header,
+.quickview-panel-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.quickview-panel-header {
+  border-bottom: 1px solid var(--border);
+}
+
+.quickview-panel-title {
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.quickview-panel-subtitle {
+  color: var(--dim2);
+  font-size: 0.9rem;
+  margin-top: 4px;
+}
+
+.quickview-close-btn {
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text);
+  font-size: 1.3rem;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.quickview-close-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.quickview-panel-body {
+  display: flex;
+  gap: 0;
+  flex: 1 1 auto; /* take remaining space between header and footer */
+  overflow: hidden; /* body will contain independent scrollable columns */
+}
+
+.quickview-pane {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: var(--bg);
+}
+
+.quickview-pane-label {
+  font-size: 0.9rem;
+  color: var(--dim2);
+}
+
+.quickview-screenshot-pane {
+  flex: 0 0 35%; /* left pane width preference (~35%) */
+  min-width: 320px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-right: 1px solid var(--border);
+}
+
+.quickview-screenshot-wrapper {
+  position: relative;
+  flex: 1 1 auto;
+  height: 100%;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow-y: auto; /* independent vertical scroll */
+  overflow-x: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 12px; /* padding so image not touch edges */
+  box-sizing: border-box;
+}
+
+.quickview-screenshot-img {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+  image-rendering: auto;
+  cursor: crosshair;
+  margin: 0 auto;
+}
+
+.quickview-screenshot-clickmask {
+  position: absolute;
+  inset: 0;
+  cursor: crosshair;
+}
+
+.quickview-screenshot-highlight {
+  position: absolute;
+  border: 2px solid var(--accent);
+  background: rgba(99, 102, 241, 0.18);
+  pointer-events: none;
+  display: none;
+}
+
+.quickview-status-text {
+  font-size: 0.9rem;
+  color: var(--dim2);
+}
+
+.quickview-xml-pane {
+  flex: 1 1 auto; /* right pane expands */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-left: 1px solid var(--border);
+}
+
+.quickview-xml-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.quickview-btn {
+  border: none;
+  border-radius: 10px;
+  padding: 10px 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background var(--transition-fast), transform var(--transition-fast);
+}
+
+.quickview-btn:hover {
+  transform: translateY(-1px);
+}
+
+.quickview-btn-primary {
+  background: var(--accent);
+  color: var(--btn-primary-text);
+}
+
+.quickview-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.quickview-xml-lines {
+  flex: 1 1 auto;
+  overflow-x: auto;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg2);
+  padding: 14px;
+  line-height: 1.5rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  color: var(--text);
+  font-size: 0.88rem;
+  white-space: pre;
+}
+
+.quickview-xml-lines .line {
+  display: grid;
+  grid-template-columns: minmax(42px, max-content) 1fr;
+  gap: 12px;
+  padding: 0 6px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: background-color 0.15s ease;
+}
+
+.quickview-xml-lines .line:hover {
+  background: rgba(255,255,255,0.08);
+}
+
+.quickview-xml-lines .line-number {
+  color: var(--dim);
+  user-select: none;
+}
+
+.quickview-xml-lines .line-content {
+  color: var(--text);
+  white-space: pre;
+}
+
+.quickview-xml-lines .line-selected {
+  background: rgba(99, 102, 241, 0.25);
+  border-left: 3px solid var(--accent);
+  padding-left: 3px;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.quickview-footer-hint {
+  color: var(--dim2);
+  font-size: 0.9rem;
+}
+
+.quickview-panel-footer {
+  border-top: 1px solid var(--border);
+  background: var(--card);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-shrink: 0; /* keep footer visible at bottom of modal flow */
+  padding: 14px 20px; /* ensure consistent spacing */
+}
+
+@media (max-width: 1080px) {
+  .quickview-panel-body {
+    grid-template-columns: 1fr;
+  }
+
+  .quickview-xml-pane {
+    border-left: none;
+    border-top: 1px solid var(--border);
+  }
+}
+
+/* Visual Polish & Enhanced Styling */
+
+.quickview-screenshot-wrapper {
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, 0.08), inset 0 -1px 2px rgba(255, 255, 255, 0.02);
+}
+
+.quickview-screenshot-img {
+  filter: drop-shadow(0 0 1px rgba(0, 0, 0, 0.1));
+}
+
+.quickview-btn-primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  opacity: 0.95;
+}
+
+.quickview-btn-primary:active:not(:disabled) {
+  transform: translateY(0);
+}
+
+.quickview-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: var(--border-focus);
+}
+
+.quickview-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quickview-pane-label {
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.quickview-xml-lines {
+  background: linear-gradient(135deg, var(--bg2) 0%, rgba(255, 255, 255, 0.01) 100%);
+}
+
+.quickview-xml-lines .line-number {
+  text-align: right;
+  font-weight: 500;
+  opacity: 0.7;
+}

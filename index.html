@@ -1,0 +1,1912 @@
+<!DOCTYPE html>
+<html lang="id" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' http://localhost:*; frame-ancestors 'none';">
+<title>RBA Studio Pro 2.0</title>
+<style>
+/* ── TOKENS ─────────────────────────────────────── */
+:root,
+  [data-theme="dark"] {
+    --bg-primary:    #0f0f1a;
+    --bg-secondary:  #1a1a2e;
+    --bg-tertiary:   #16213e;
+    --bg-hover:      rgba(255, 255, 255, 0.06);
+    --bg-active:     rgba(255, 255, 255, 0.10);
+
+    --text-primary:  #e8e8f0;
+    --text-secondary:#a0a0b8;
+    --text-muted:    #6b6b85;
+
+    --border-color:  rgba(255, 255, 255, 0.10);
+    --border-hover:  rgba(255, 255, 255, 0.20);
+
+    --accent-blue:   #6366f1;
+    --accent-green:  #22c55e;
+    --accent-red:    #ef4444;
+    --accent-yellow: #eab308;
+    --accent-orange: #f97316;
+
+    --sidebar-bg:    #0f0f1a;
+    --sidebar-item-active-bg: rgba(99, 102, 241, 0.15);
+    --sidebar-item-active-text: #818cf8;
+
+    --input-bg:      #16213e;
+    --input-border:  rgba(255, 255, 255, 0.12);
+    --input-focus:   rgba(99, 102, 241, 0.35);
+
+    --btn-primary-bg:   #6366f1;
+    --btn-primary-text: #ffffff;
+    --btn-danger-bg:    #ef4444;
+    --btn-success-bg:   #22c55e;
+
+    --card-bg:       #1a1a2e;
+    --card-border:   rgba(255, 255, 255, 0.08);
+
+    --scrollbar-thumb: rgba(255,255,255,0.15);
+    --scrollbar-track: transparent;
+
+    --tooltip-bg: rgba(15, 23, 42, 0.95);
+    --tooltip-text: #ffffff;
+    --tooltip-border: rgba(255, 255, 255, 0.08);
+
+    --badge-online-bg: rgba(16, 185, 129, 0.1);
+    --badge-offline-bg: rgba(239, 68, 68, 0.08);
+
+    --btn-danger-bg-soft: rgba(239, 68, 68, 0.15);
+    --btn-primary-bg-soft: rgba(99, 102, 241, 0.15);
+    --btn-success-bg-soft: rgba(16, 185, 129, 0.15);
+    --btn-warning-bg-soft: rgba(239, 68, 68, 0.12);
+    --ctx-hover: rgba(59, 130, 246, 0.18);
+    --ctx-danger-hover: rgba(239, 68, 68, 0.18);
+    --dev-refresh-bg: rgba(59, 130, 246, 0.15);
+    --dev-scrcpy-bg: rgba(168, 85, 247, 0.15);
+    --overlay-bg: rgba(7, 12, 24, 0.9);
+    --toggle-bg: rgba(255, 255, 255, 0.1);
+    --toggle-thumb: #ffffff;
+
+    --bg: var(--bg-primary);
+    --bg2: var(--bg-secondary);
+    --bg3: var(--bg-tertiary);
+    --card: var(--card-bg);
+    --border: var(--border-color);
+    --border2: var(--border-hover);
+    --accent: var(--accent-blue);
+    --accent2: var(--accent-blue);
+    --green: var(--accent-green);
+    --red: var(--accent-red);
+    --orange: var(--accent-orange);
+    --yellow: var(--accent-yellow);
+    --text: var(--text-primary);
+    --dim: var(--text-secondary);
+    --dim2: var(--text-muted);
+    --glow-blue: 0 0 20px rgba(59,130,246,0.35);
+    --glow-green: 0 0 20px rgba(16,185,129,0.35);
+    --radius: 16px; --radius-sm: 10px;
+    --transition-fast: 100ms;
+    --transition-base: 180ms;
+    --transition-slow: 250ms;
+  }
+  [data-theme="light"] {
+    --bg-primary:    #f8f9fc;
+    --bg-secondary:  #ffffff;
+    --bg-tertiary:   #f1f3f8;
+    --bg-hover:      rgba(0, 0, 0, 0.04);
+    --bg-active:     rgba(0, 0, 0, 0.08);
+
+    --text-primary:  #1a1a2e;
+    --text-secondary:#4a4a6a;
+    --text-muted:    #9090aa;
+
+    --border-color:  rgba(0, 0, 0, 0.08);
+    --border-hover:  rgba(0, 0, 0, 0.16);
+
+    --accent-blue:   #4f46e5;
+    --accent-green:  #16a34a;
+    --accent-red:    #dc2626;
+    --accent-yellow: #ca8a04;
+    --accent-orange: #ea580c;
+
+    --sidebar-bg:    #ffffff;
+    --sidebar-item-active-bg: rgba(79, 70, 229, 0.10);
+    --sidebar-item-active-text: #4f46e5;
+
+    --input-bg:      #ffffff;
+    --input-border:  rgba(0, 0, 0, 0.12);
+    --input-focus:   rgba(79, 70, 229, 0.25);
+
+    --btn-primary-bg:   #4f46e5;
+    --btn-primary-text: #ffffff;
+    --btn-danger-bg:    #dc2626;
+    --btn-success-bg:   #16a34a;
+
+    --card-bg:       #ffffff;
+    --card-border:   rgba(0, 0, 0, 0.06);
+
+    --scrollbar-thumb: rgba(0,0,0,0.12);
+    --scrollbar-track: transparent;
+
+    --tooltip-bg: rgba(255,255,255,0.92);
+    --tooltip-text: #1a1a2e;
+    --tooltip-border: rgba(0, 0, 0, 0.08);
+
+    --badge-online-bg: rgba(16, 185, 129, 0.1);
+    --badge-offline-bg: rgba(239, 68, 68, 0.08);
+
+    --btn-danger-bg-soft: rgba(239, 68, 68, 0.15);
+    --btn-primary-bg-soft: rgba(79, 70, 229, 0.15);
+    --btn-success-bg-soft: rgba(16, 185, 129, 0.15);
+    --btn-warning-bg-soft: rgba(239, 68, 68, 0.12);
+    --dev-refresh-bg: rgba(79, 70, 229, 0.15);
+    --dev-scrcpy-bg: rgba(168, 85, 247, 0.15);
+    --overlay-bg: rgba(255,255,255,0.9);
+    --toggle-bg: rgba(0, 0, 0, 0.1);
+    --toggle-thumb: #ffffff;
+
+    --bg: var(--bg-primary);
+    --bg2: var(--bg-secondary);
+    --bg3: var(--bg-tertiary);
+    --card: var(--card-bg);
+    --border: var(--border-color);
+    --border2: var(--border-hover);
+    --accent: var(--accent-blue);
+    --accent2: var(--accent-blue);
+    --green: var(--accent-green);
+    --red: var(--accent-red);
+    --orange: var(--accent-orange);
+    --yellow: var(--accent-yellow);
+    --text: var(--text-primary);
+    --dim: var(--text-secondary);
+    --dim2: var(--text-muted);
+}
+
+/* ── RESET ──────────────────────────────────────── */
+*{box-sizing:border-box;margin:0;padding:0;font-family:'Inter','Segoe UI',Arial,sans-serif;}
+body{background:var(--bg);color:var(--text);height:100vh;overflow:hidden;user-select:none;}
+
+@media (prefers-reduced-motion: no-preference) {
+  body,
+  .shell,
+  .sidebar,
+  .main,
+  header,
+  .view,
+  .panel-body,
+  .panel-hdr,
+  .tool-card,
+  .tb-btn,
+  .hdr-btn,
+  .search-bar input,
+  .prop-input,
+  .dev-btn,
+  .btn-delete,
+  .btn-dup,
+  .btn-run-step,
+  .btn-draw-conn,
+  input,
+  select,
+  textarea,
+  button {
+    transition:
+      background-color 250ms var(--transition-base),
+      color 250ms var(--transition-base),
+      border-color 200ms var(--transition-base);
+  }
+}
+
+/* ── LAYOUT ─────────────────────────────────────── */
+.shell{display:flex;height:100vh;}
+.sidebar{width:68px;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0 12px;gap:4px;z-index:200;flex-shrink:0;}
+.main{flex:1;display:flex;flex-direction:column;min-width:0;}
+header{height:56px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;padding:0 20px;gap:14px;flex-shrink:0;}
+
+/* ── SIDEBAR ICONS ───────────────────────────────── */
+.nav-ico{width:44px;height:44px;border-radius:12px;display:flex;align-items:center;justify-content:center;cursor:pointer;color:var(--dim2);font-size:18px;transition:all .2s;position:relative;}
+.nav-ico:hover{background:var(--bg-hover);color:var(--text);}
+.nav-ico.active{background:var(--accent-blue);color:var(--btn-primary-text);box-shadow:var(--glow-blue);}
+.nav-ico .tooltip{position:absolute;left:56px;background:var(--tooltip-bg);color:var(--tooltip-text);font-size:11px;white-space:nowrap;padding:5px 10px;border-radius:6px;pointer-events:none;opacity:0;transition:opacity .15s;border:1px solid var(--tooltip-border);}
+.nav-ico:hover .tooltip{opacity:1;}
+.sidebar-sep{width:36px;height:1px;background:var(--border);margin:6px 0;}
+
+/* ── HEADER ──────────────────────────────────────── */
+.hdr-logo{font-weight:800;font-size:14px;letter-spacing:.04em;background:linear-gradient(135deg,var(--accent-blue),var(--sidebar-item-active-text));background-clip:text;-webkit-background-clip:text;-webkit-text-fill-color:transparent;}
+.hdr-project{font-size:13px;font-weight:600;color:var(--dim2);cursor:pointer;padding:4px 10px;border-radius:8px;border:1px solid var(--border2);}
+.hdr-project:hover{border-color:var(--accent-blue);color:var(--text);}
+.hdr-spacer{flex:1;}
+.hdr-badge{display:flex;align-items:center;gap:6px;font-size:11px;padding:5px 12px;border-radius:20px;border:1px solid var(--border);background:var(--bg-active);cursor:pointer;}
+.hdr-badge.online{border-color:var(--accent-green);color:var(--accent-green);background:var(--badge-online-bg);}
+.hdr-badge.offline{border-color:var(--accent-red);color:var(--accent-red);background:var(--badge-offline-bg);}
+.hdr-dot{width:7px;height:7px;border-radius:50%;background:currentColor;}
+.hdr-btn{border:none;background:var(--bg-hover);color:var(--text);border-radius:10px;padding:7px 14px;font-size:12px;cursor:pointer;transition:.15s;border:1px solid var(--border2);}
+.hdr-btn:hover{background:var(--bg-active);}
+.hdr-btn.primary{background:var(--accent-blue);color:var(--btn-primary-text);border-color:transparent;}
+.hdr-btn.primary:hover{background:var(--accent-blue);opacity:.95;}
+.hdr-btn.danger{background:var(--accent-red);color:var(--btn-primary-text);border-color:transparent;}
+
+/* ── VIEWS ───────────────────────────────────────── */
+.view{display:none;flex:1;overflow:hidden;position:relative;z-index:0;visibility:hidden;pointer-events:none;}
+.view.active,
+.view.page-entering,
+.view.page-exiting{display:flex;flex-direction:column;position:relative;z-index:1;visibility:visible;pointer-events:auto;}
+
+@media (prefers-reduced-motion: no-preference) {
+  .view.page-entering {
+    animation: pageEnter var(--transition-base) ease-out forwards;
+  }
+  .view.page-exiting {
+    animation: pageExit var(--transition-fast) ease-in forwards;
+  }
+}
+
+@keyframes pageEnter {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pageExit {
+  from { opacity: 1; }
+  to   { opacity: 0; }
+}
+
+/* ── EDITOR LAYOUT ───────────────────────────────── */
+.editor-shell{display:flex;flex:1;overflow:hidden;gap:0;}
+.left-panel{width:256px;flex-shrink:0;background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.right-panel{width:300px;flex-shrink:0;background:var(--bg2);border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.canvas-zone{flex:1;display:flex;flex-direction:column;overflow:hidden;position:relative;}
+.log-strip{height:220px;border-top:1px solid var(--border);background:var(--bg2);display:flex;flex-direction:column;flex-shrink:0;transition:height .25s;}
+.log-strip.collapsed{height:36px;}
+
+/* ── PANEL COMMON ────────────────────────────────── */
+.panel-hdr{font-size:10px;font-weight:800;letter-spacing:.12em;color:var(--dim);padding:14px 16px 10px;border-bottom:1px solid var(--border2);text-transform:uppercase;}
+.panel-body{flex:1;overflow-y:auto;padding:12px;}
+.panel-body::-webkit-scrollbar{width:4px;}
+.panel-body::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:2px;}
+
+/* ── SEARCH ──────────────────────────────────────── */
+.search-bar{margin:10px 12px 8px;position:relative;}
+.search-bar input{width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text);border-radius:10px;padding:8px 12px 8px 32px;font-size:12px;outline:none;}
+.search-bar input:focus{border-color:var(--accent-blue);background:var(--input-focus);}
+.search-bar::before{content:'🔍';position:absolute;left:10px;top:9px;font-size:11px;}
+
+/* ── SECTION TITLE ───────────────────────────────── */
+.sec{font-size:10px;font-weight:700;color:var(--dim);letter-spacing:.1em;padding:14px 4px 6px;text-transform:uppercase;}
+
+/* ── TOOL CARDS ──────────────────────────────────── */
+.tool-card{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:10px;cursor:pointer;background:transparent;border:1px solid transparent;color:var(--text);font-size:12px;font-weight:500;transition:opacity var(--transition-base) ease-out,transform var(--transition-base) ease-out,background-color var(--transition-fast) ease,border-color var(--transition-fast) ease,width .15s;text-align:left;opacity:0;transform:translateX(-8px);}
+.tool-card.visible{opacity:1;transform:translateX(0);}
+.tool-card.filtered-out{opacity:0;transform:translateX(-8px);height:0;margin:0;padding:0;overflow:hidden;pointer-events:none;}
+.tool-card:hover{background:var(--bg-hover);border-color:var(--border);}
+.tool-card .tc-ico{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;}
+.tool-card .tc-lbl strong{display:block;font-size:12px;}
+.tool-card .tc-lbl span{font-size:10px;color:var(--dim2);}
+
+/* ── TOOLBAR ─────────────────────────────────────── */
+.toolbar{display:flex;align-items:center;gap:6px;padding:8px 14px;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap;flex-shrink:0;}
+.tb-btn{border:none;background:var(--bg-hover);color:var(--text);border-radius:8px;padding:6px 12px;font-size:11px;cursor:pointer;transition:.15s;border:1px solid var(--border2);white-space:nowrap;}
+.tb-btn:hover{background:var(--bg-active);}
+.tb-btn.active{background:var(--sidebar-item-active-bg);border-color:var(--sidebar-item-active-text);color:var(--sidebar-item-active-text);}
+.tb-sep{width:1px;height:20px;background:var(--border);flex-shrink:0;}
+.tb-run{background:var(--accent-green)!important;color:var(--btn-primary-text)!important;border-color:transparent!important;}
+.tb-run:hover{background:var(--accent-green)!important;}
+.tb-stop{background:var(--accent-red)!important;color:var(--btn-primary-text)!important;border-color:transparent!important;}
+.tb-stop:hover{background:var(--accent-red)!important;}
+
+/* ── CANVAS ──────────────────────────────────────── */
+.canvas-area{flex:1;position:relative;overflow:hidden;
+  background-color:var(--bg);
+  background-image:
+    radial-gradient(circle, rgba(59,130,246,0.04) 1px, transparent 1px),
+    linear-gradient(rgba(255,255,255,0.012) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.012) 1px, transparent 1px);
+  background-size: 20px 20px, 100px 100px, 100px 100px;
+  cursor:grab;
+}
+.canvas-area:active{cursor:grabbing;}
+#canvas-wrapper{position:absolute;top:0;left:0;transform-origin:0 0;will-change:transform;}
+#svg-layer{position:absolute;top:0;left:0;width:12000px;height:9000px;pointer-events:all;overflow:visible;}
+
+/* ── NODES ───────────────────────────────────────── */
+.node{
+  position:absolute;width:200px;background:var(--card);
+    border:1.5px solid var(--card-border);border-radius:14px;
+    padding:12px 14px;cursor:move;color:var(--text);
+    box-shadow:0 4px 24px rgba(0,0,0,0.4);z-index:10;
+    transition:border-color .2s, box-shadow .2s;
+    display:flex;align-items:center;gap:12px;
+  }
+  .node:hover{border-color:var(--border-hover);box-shadow:0 8px 32px rgba(0,0,0,0.5);}
+  .node.selected{border-color:var(--accent-blue)!important;box-shadow:0 0 0 2px rgba(59,130,246,0.3), 0 8px 32px rgba(0,0,0,0.5);}
+  .node.running{border-color:var(--accent-yellow)!important;animation:pulse-node 1s infinite;}
+  @media (prefers-reduced-motion: no-preference) {
+    .node.node-entering {
+      animation: nodeAppear var(--transition-base) ease-out forwards;
+    }
+  }
+
+  @keyframes nodeAppear {
+    from { opacity: 0; transform: scale(0.85); }
+    to   { opacity: 1; transform: scale(1); }
+  }
+  .node.success{border-color:var(--accent-green)!important;}
+  .node.error{border-color:var(--accent-red)!important;}
+  .node-ico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:17px;flex-shrink:0;}
+  .node-body{min-width:0;}
+  .node-lbl{font-size:12px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .node-type{font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em;margin-top:1px;}
+  .node-port{position:absolute;width:10px;height:10px;border-radius:50%;background:var(--accent);border:2px solid var(--bg);top:50%;transform:translateY(-50%);cursor:crosshair;z-index:20;}
+  .node-port.out{right:-5px;}
+  .node-port.in{left:-5px;}
+  .node-status-bar{position:absolute;bottom:0;left:0;right:0;height:3px;border-radius:0 0 12px 12px;background:transparent;transition:.2s;}
+  .node.running .node-status-bar{background:var(--accent-yellow);}
+  .node.success .node-status-bar{background:var(--accent-green);}
+  .node.error   .node-status-bar{background:var(--accent-red);}
+  .node-step-num{position:absolute;top:-8px;left:8px;font-size:9px;font-weight:700;background:var(--accent-blue);color:var(--btn-primary-text);border-radius:4px;padding:1px 5px;}
+
+  @keyframes pulse-node{0%,100%{box-shadow:0 0 0 2px rgba(234,179,8,0.5);}50%{box-shadow:0 0 0 6px rgba(234,179,8,0.0);}}
+
+  .flow-edge{fill:none;stroke-width:2;stroke-linecap:round;cursor:pointer;pointer-events:stroke;transition:stroke-width .2s,opacity .2s;}
+  .flow-edge:hover{stroke-width:3;}
+  .flow-edge.selected{stroke-width:3;filter:drop-shadow(0 0 6px currentColor);}
+  .flow-edge.active-run{stroke-dasharray:10,5;animation:dash-anim 0.6s linear infinite;}
+  @keyframes dash-anim{to{stroke-dashoffset:-15;}}
+
+  /* ── CONTEXT MENU ────────────────────────────────── */
+  .ctx-menu{position:fixed;background:var(--overlay-bg);border:1px solid var(--border);border-radius:10px;padding:6px;z-index:9999;min-width:180px;box-shadow:0 16px 48px rgba(0,0,0,0.6);backdrop-filter:blur(10px);}
+  .ctx-item{padding:7px 12px;font-size:12px;cursor:pointer;border-radius:6px;color:var(--text);display:flex;align-items:center;gap:8px;transition:.12s;}
+  .ctx-item:hover{background:var(--ctx-hover);}
+  .ctx-item.danger:hover{background:var(--ctx-danger-hover);color:var(--accent-red);}
+.ctx-sub{color:var(--dim);font-size:10px;font-weight:700;letter-spacing:.08em;padding:6px 12px 2px;text-transform:uppercase;}
+
+/* ── PROPERTIES PANEL ────────────────────────────── */
+.prop-group{margin-bottom:16px;}
+.prop-label{font-size:10px;font-weight:700;color:var(--dim2);letter-spacing:.06em;margin-bottom:5px;display:block;text-transform:uppercase;}
+.prop-input{width:100%;background:var(--input-bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:8px 10px;font-size:12px;outline:none;transition:.15s;}
+.prop-input:focus{border-color:var(--accent-blue);background:var(--input-focus);}
+.prop-input.prop-warning-device{border-color:#f59e0b!important;box-shadow:0 0 0 3px rgba(245,158,11,0.18);}
+.prop-select{appearance:none;-webkit-appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M0 0l6 8 6-8z' fill='%2364748b'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;transition:border-color var(--transition-fast) ease,box-shadow var(--transition-fast) ease;}
+.prop-input, .prop-select, #prop-editor textarea {
+  transition:border-color var(--transition-fast) ease,box-shadow var(--transition-fast) ease,opacity var(--transition-fast) ease;
+}
+#prop-editor {
+  transition: opacity var(--transition-fast) ease;
+}
+.prop-input:focus, .prop-select:focus, #prop-editor textarea:focus {
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.3);
+}
+#prop-editor.updating {
+  opacity: 0;
+}
+.prop-sep{height:1px;background:var(--border2);margin:14px 0;}
+.prop-title{font-size:12px;font-weight:700;color:var(--text);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+
+.region-preview-wrap {
+  width: 100%;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
+  overflow: hidden;
+  min-height: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.region-preview-hint {
+  color: var(--text-muted, #666);
+  font-size: 12px;
+  text-align: center;
+  padding: 12px;
+}
+
+.region-canvas-container {
+  width: 100%;
+}
+
+#regionCanvas {
+  width: 100%;
+  height: auto;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+.region-coord-label {
+  font-size: 11px;
+  color: var(--text-muted, #666);
+  margin-right: 4px;
+}
+
+#regionCoordsText {
+  font-size: 11px;
+  color: var(--accent-color, #4f8ef7);
+  font-family: monospace;
+}
+
+.region-actions .btn-secondary {
+  flex: 1;
+  padding: 6px 10px;
+  font-size: 12px;
+  border-radius: 5px;
+  cursor: pointer;
+  background: var(--bg-secondary, #1a1a2e);
+  border: 1px solid var(--border-color, #444);
+  color: var(--text-primary, #eee);
+  transition: background 0.15s;
+}
+
+.region-actions .btn-secondary:hover {
+  background: var(--bg-hover, #252545);
+}
+.prop-ico-big{width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;}
+.prop-empty{color:var(--dim);text-align:center;padding:48px 16px;font-size:12px;line-height:1.7;}
+.btn-full{width:100%;padding:9px;border:none;border-radius:8px;font-size:12px;cursor:pointer;font-weight:600;transition:.15s;margin-bottom:6px;}
+.btn-delete{background:var(--btn-danger-bg-soft);color:var(--accent-red);border:1px solid rgba(239,68,68,0.25);}
+.btn-delete:hover{background:var(--accent-red);color:var(--btn-primary-text);}
+.btn-dup{background:var(--btn-primary-bg-soft);color:var(--sidebar-item-active-text);border:1px solid rgba(99,102,241,0.25);}
+.btn-dup:hover{background:var(--accent2);color:var(--btn-primary-text);}
+.btn-run-step{background:var(--btn-success-bg-soft);color:var(--accent-green);border:1px solid rgba(16,185,129,0.25);}
+.btn-run-step:hover{background:var(--accent-green);color:var(--btn-primary-text);}
+.btn-draw-conn{background:var(--bg-active);color:var(--sidebar-item-active-text);border:1px solid rgba(59,130,246,0.25);}
+.btn-draw-conn:hover{background:var(--accent-blue);color:var(--btn-primary-text);}
+.prop-row2{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+
+/* ── DEVICE CARD ─────────────────────────────────── */
+.dev-section{margin-top:auto;padding:12px;border-top:1px solid var(--border);}
+.dev-label{font-size:10px;color:var(--dim);font-weight:700;letter-spacing:.06em;margin-bottom:6px;text-transform:uppercase;}
+.dev-select{width:100%;background:rgba(255,255,255,0.04);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:7px 10px;font-size:11px;}
+.dev-actions{display:flex;gap:6px;margin-top:8px;}
+.dev-btn{flex:1;border:none;border-radius:7px;padding:6px;font-size:10px;cursor:pointer;font-weight:600;transition:.15s;}
+.dev-btn.refresh{background:var(--dev-refresh-bg);color:var(--sidebar-item-active-text);border:1px solid rgba(59,130,246,0.2);}
+.dev-btn.scrcpy{background:var(--dev-scrcpy-bg);color:var(--sidebar-item-active-text);border:1px solid rgba(168,85,247,0.2);}
+.dev-btn:hover{filter:brightness(1.1);}
+
+/* ── LOG PANEL ───────────────────────────────────── */
+.log-hdr{height:36px;display:flex;align-items:center;justify-content:space-between;padding:0 14px;cursor:pointer;border-bottom:1px solid var(--border2);flex-shrink:0;}
+.log-hdr-title{font-size:10px;font-weight:700;letter-spacing:.1em;color:var(--dim);display:flex;align-items:center;gap:8px;}
+.log-hdr-actions{display:flex;gap:6px;}
+.log-body{display:flex;flex:1;overflow:hidden;}
+.log-output{flex:1;overflow-y:auto;padding:8px 14px;font-family:'Consolas','Courier New',monospace;font-size:11px;line-height:1.7;color:var(--text-secondary);}
+.log-output .log-info{color:var(--text-secondary);}
+.log-output .log-warn{color:var(--accent-yellow);}
+.log-output .log-error{color:var(--accent-red);}
+.log-output .log-success{color:var(--accent-green);}
+.log-output .log-ts{color:var(--dim);}
+
+@media (prefers-reduced-motion: no-preference) {
+  .log-entry {
+    opacity: 0;
+    transform: translateY(-5px);
+    animation: logSlideIn var(--transition-fast) ease-out forwards;
+  }
+  .log-entry.log-success {
+    animation: logSlideIn var(--transition-fast) ease-out forwards, logHighlight 600ms ease-out 150ms forwards;
+  }
+  .log-entry.log-error {
+    animation: logSlideIn var(--transition-fast) ease-out forwards, logHighlightError 600ms ease-out 150ms forwards;
+  }
+}
+
+@keyframes logSlideIn {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes logHighlight {
+  from { background-color: rgba(234, 179, 8, 0.15); }
+  to   { background-color: transparent; }
+}
+
+@keyframes logHighlightError {
+  from { background-color: rgba(239, 68, 68, 0.15); }
+  to   { background-color: transparent; }
+}
+
+.log-stats{width:200px;border-left:1px solid var(--border2);padding:12px;flex-shrink:0;}
+.stat-item{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:11px;}
+.stat-val{font-weight:700;color:var(--text);}
+
+/* ── DASHBOARD ───────────────────────────────────── */
+.dash-view{padding:32px;overflow-y:auto;flex:1;}
+.dash-title{font-size:22px;font-weight:800;margin-bottom:6px;}
+.dash-sub{font-size:13px;color:var(--dim2);margin-bottom:28px;}
+.dash-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:14px;margin-bottom:28px;}
+.dash-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:14px;margin-bottom:28px;}
+.dash-summary .dash-card{cursor:default;}
+.dash-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;cursor:pointer;transition:.2s;}
+.dash-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 24px rgba(0,0,0,0.3);}
+.dash-card-ico{font-size:24px;margin-bottom:10px;}
+.dash-card-ttl{font-size:13px;font-weight:700;margin-bottom:4px;}
+.dash-card-sub{font-size:11px;color:var(--dim2);}
+.wf-list-wrap{background:var(--card);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+.wf-list-hdr{padding:14px 20px;border-bottom:1px solid var(--border);font-weight:700;font-size:13px;display:flex;align-items:center;justify-content:space-between;}
+.wf-item{display:flex;align-items:center;gap:14px;padding:12px 20px;border-bottom:1px solid var(--border2);transition:.15s;}
+.wf-item:last-child{border-bottom:none;}
+.wf-item:hover{background:rgba(255,255,255,0.03);}
+.wf-item-ico{width:36px;height:36px;border-radius:8px;background:rgba(59,130,246,0.15);display:flex;align-items:center;justify-content:center;font-size:16px;}
+.wf-item-body{flex:1;min-width:0;}
+.wf-item-name{font-size:12px;font-weight:700;}
+.wf-item-meta{font-size:10px;color:var(--dim2);}
+.wf-item-actions{display:flex;gap:6px;}
+.wf-item-btn{border:none;border-radius:6px;padding:5px 10px;font-size:10px;cursor:pointer;font-weight:600;}
+.wf-item-btn.open{background:rgba(59,130,246,0.15);color:#93c5fd;}
+.wf-item-btn.del{background:rgba(239,68,68,0.12);color:var(--red);}
+
+/* ── SETTINGS ────────────────────────────────────── */
+.settings-view{padding:32px;overflow-y:auto;flex:1;}
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:16px;}
+.setting-card{background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;}
+.setting-card-ttl{font-size:11px;font-weight:700;letter-spacing:.1em;color:var(--dim);text-transform:uppercase;margin-bottom:16px;}
+
+/* ── MINIMAP ─────────────────────────────────────── */
+#minimap{position:absolute;bottom:16px;right:16px;width:180px;height:130px;background:rgba(7,12,24,0.9);border:1px solid var(--border);border-radius:10px;overflow:hidden;z-index:50;display:none;}
+#minimap canvas{width:100%;height:100%;}
+.minimap-viewport{position:absolute;border:1px solid rgba(59,130,246,0.6);pointer-events:none;}
+
+/* ── ZOOM INDICATOR ──────────────────────────────── */
+.zoom-badge{position:absolute;bottom:16px;left:50%;transform:translateX(-50%);background:rgba(13,21,41,0.85);border:1px solid var(--border);border-radius:20px;padding:4px 14px;font-size:11px;font-weight:700;color:var(--dim2);pointer-events:none;z-index:30;}
+
+/* ── TEMP LINE ───────────────────────────────────── */
+#temp-line{pointer-events:none;stroke:var(--accent);stroke-width:2;stroke-dasharray:6,3;fill:none;}
+
+/* ── TOGGLE ──────────────────────────────────────── */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.toggle-row label{font-size:12px;color:var(--dim2);}
+.toggle{position:relative;width:36px;height:20px;}
+.toggle input{opacity:0;width:0;height:0;}
+.toggle-slider{position:absolute;inset:0;background:rgba(255,255,255,0.1);border-radius:20px;cursor:pointer;transition:.2s;}
+.toggle input:checked+.toggle-slider{background:var(--accent);}
+.toggle-slider::after{content:'';position:absolute;width:14px;height:14px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;}
+.toggle input:checked+.toggle-slider::after{transform:translateX(16px);}
+
+/* ── REC INDICATOR ───────────────────────────────── */
+.rec-badge{display:none;align-items:center;gap:6px;font-size:11px;color:var(--red);animation:blink 1s step-start infinite;}
+@keyframes blink{50%{opacity:0;}}
+.rec-badge.active{display:flex;}
+.rec-dot{width:8px;height:8px;border-radius:50%;background:var(--red);}
+
+/* ── SCROLLBARS ──────────────────────────────────── */
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-track{background:transparent;}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,0.1);border-radius:3px;}
+</style>
+<link rel="stylesheet" href="assets/rba-ui.css">
+<link rel="stylesheet" href="assets/rba-flowretur.css">
+<link rel="stylesheet" href="workflows-redesign.css">
+<link rel="stylesheet" href="src/ui/quick-view-xml.css">
+</head>
+<body>
+<div class="shell">
+
+  <!-- SIDEBAR -->
+  <nav class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-logo-row">
+        <div class="brand-mark"><img src="RBA_logo.png" alt="RBA Studio logo"></div>
+        <div class="brand-copy">
+          <strong>RBA Studio</strong>
+          <span>Automation Suite</span>
+        </div>
+      </div>
+    </div>
+    <div class="nav-ico active" id="nav-dash" onclick="switchView('dashboard')" title="">
+      ⊞<span class="nav-ico-label">Dashboard</span>
+    </div>
+    <div class="nav-ico" id="nav-barcode" onclick="switchView('barcode-generator')" title="">
+      🏷️<span class="nav-ico-label">Barcode</span>
+    </div>
+    <div class="nav-ico" id="nav-edit" onclick="switchView('editor')" title="">
+      ⚡<span class="nav-ico-label">Workflows</span>
+    </div>
+    <div class="nav-ico" id="nav-rec" onclick="switchView('recorder')" title="">
+      🎬<span class="nav-ico-label">Macro Recorder</span>
+    </div>
+    <div class="nav-ico" id="nav-excel-loop" onclick="switchView('excel-loop')" title="">
+      📊<span class="nav-ico-label">Excel Loop</span>
+    </div>
+    <div class="nav-ico" id="nav-whatsapp-bot" onclick="switchView('whatsapp-bot')" title="">
+      📲<span class="nav-ico-label">WhatsApp Bot</span>
+    </div>
+    <div class="nav-ico" id="nav-flow-retur" onclick="switchView('flow-retur')" title="">
+      🔁<span class="nav-ico-label">Flow Retur</span>
+    </div>
+    <div class="nav-ico" id="nav-set" onclick="switchView('settings')" title="">
+      ⚙️<span class="nav-ico-label">Settings</span>
+    </div>
+    <div class="sidebar-sep"></div>
+    <div class="nav-ico" onclick="toggleTheme()" title="">
+      🌓<span class="nav-ico-label">Theme</span>
+    </div>
+    <div class="nav-ico" onclick="showAdbInfo()" title="">
+      📱<span class="nav-ico-label">Devices</span>
+    </div>
+    <div class="sidebar-footer">
+      <div class="sidebar-avatar">RS</div>
+      <div>
+        <strong>Administrator</strong>
+        <span>Automation Ops</span>
+      </div>
+    </div>
+  </nav>
+
+  <div class="main">
+    <!-- HEADER -->
+    <header>
+      <div class="hdr-logo">
+        <img src="RBA_logo.png" alt="RBA Studio icon">
+        <div class="hdr-brand-copy">
+          <strong>RBA Studio Pro</strong>
+          <span>Workflow Orchestration</span>
+        </div>
+      </div>
+      <div class="hdr-project" id="proj-name" ondblclick="renameProject()">Untitled Flow ✏️</div>
+      <div class="hdr-spacer"></div>
+      <div class="rec-badge" id="rec-badge"><div class="rec-dot"></div>REC</div>
+      <div class="hdr-badge offline" id="bot-status"><div class="hdr-dot"></div>OFFLINE</div>
+      <button class="hdr-btn primary" id="run-flow-btn" onclick="runWorkflow()">▶ RUN</button>
+      <button class="hdr-btn danger"  id="stop-flow-btn" onclick="stopWorkflow()" disabled>■ STOP</button>
+      <button class="hdr-btn" onclick="saveCurrentProject()">💾 Save</button>
+    </header>
+
+    <!-- DASHBOARD VIEW -->
+    <div class="view active" id="dashboard">
+      <div class="dash-view">
+        <div class="dashboard-shell">
+          <div class="dashboard-hero">
+            <div class="hero-card">
+              <div class="hero-badge">✨ Modern Dashboard</div>
+              <div class="hero-title">Selamat Datang, <span id="welcome-user">Administrator</span> 👋</div>
+              <div class="hero-subtitle">Kelola & jalankan workflow otomatis Anda dengan mudah dan cepat. Monitor performa, akses perangkat, dan rekam aksi dengan antarmuka yang lebih rapi.</div>
+              <div class="hero-meta">
+                <div class="meta-pill">🧠 Workflow Ready</div>
+                <div class="meta-pill">⚡ Fast Execution</div>
+                <div class="meta-pill">📱 ADB Live</div>
+              </div>
+            </div>
+            <div class="success-card">
+              <div>
+                <div class="label">Success Rate</div>
+                <div class="success-rate" id="stat-success-rate">0%</div>
+                <div class="success-sub">Total <span id="stat-total-runs">0</span> runs</div>
+              </div>
+              <div class="sparkline">
+                <span></span><span></span><span></span><span></span><span></span><span></span>
+              </div>
+              <button class="hdr-btn" onclick="loadSavedProjects()">🔄 Refresh</button>
+            </div>
+          </div>
+
+          <div class="quick-actions">
+            <div class="dash-card quick-card" onclick="createNew(); switchView('editor')">
+              <div class="quick-card-header">
+                <div class="quick-icon new-workflow">＋</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">New Workflow</div>
+              <div class="quick-card-sub">Buat flow baru dari awal.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="switchView('barcode-generator'); if (typeof initBarcodeGenerator === 'function') initBarcodeGenerator();" title="Open Barcode Generator">
+              <div class="quick-card-header">
+                <div class="quick-icon barcode">🏷️</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Barcode Generator</div>
+              <div class="quick-card-desc">Generate & export barcode labels</div>
+            </div>
+            <div class="dash-card quick-card" onclick="document.getElementById('fileInput').click()">
+              <div class="quick-card-header">
+                <div class="quick-icon import-json">⬆</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Import JSON</div>
+              <div class="quick-card-sub">Muat workflow dari file lokal.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="refreshDevices()">
+              <div class="quick-card-header">
+                <div class="quick-icon scan-devices">📱</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Scan Devices</div>
+              <div class="quick-card-sub">Deteksi perangkat ADB yang aktif.</div>
+            </div>
+            <div class="dash-card quick-card" onclick="switchView('recorder')">
+              <div class="quick-card-header">
+                <div class="quick-icon macro-recorder">◉</div>
+                <div class="quick-arrow">→</div>
+              </div>
+              <div class="quick-card-title">Macro Recorder</div>
+              <div class="quick-card-sub">Rekam klik menjadi workflow otomatis.</div>
+            </div>
+          </div>
+
+          <div class="stats-grid">
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-total-wf">0</div>
+                  <div class="stat-label">Workflows</div>
+                </div>
+                <div class="stat-icon workflows">📁</div>
+              </div>
+              <div class="stat-progress"><span style="width: 84%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-total-runs">0</div>
+                  <div class="stat-label">Runs</div>
+                </div>
+                <div class="stat-icon runs">▶</div>
+              </div>
+              <div class="stat-progress"><span style="width: 68%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-success-rate">0%</div>
+                  <div class="stat-label">Success Rate</div>
+                </div>
+                <div class="stat-icon success">✓</div>
+              </div>
+              <div class="stat-progress"><span style="width: 92%;"></span></div>
+            </div>
+            <div class="dash-card stat-card">
+              <div class="stat-top">
+                <div>
+                  <div class="stat-value" id="stat-devices">0</div>
+                  <div class="stat-label">ADB Devices</div>
+                </div>
+                <div class="stat-icon devices">📲</div>
+              </div>
+              <div class="stat-progress"><span style="width: 76%;"></span></div>
+            </div>
+          </div>
+
+          <div class="wf-list-wrap">
+            <div class="wf-list-hdr">
+              <span>📋 Saved Workflows</span>
+              <button class="hdr-btn" onclick="loadSavedProjects()">🔄 Refresh</button>
+            </div>
+            <div id="wf-list" style="padding:8px;color:var(--dim);font-size:12px;text-align:center;">Memuat...</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- BARCODE GENERATOR VIEW -->
+    <div class="view" id="barcode-generator">
+      <div class="barcode-layout">
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Select Barcode Format</div>
+            <button id="barcode-left-hide" class="barcode-button ghost" title="Hide formats" style="height:36px;display:flex;align-items:center;justify-content:center;padding:6px;">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M15 18L9 12L15 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            </button>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-format-card active" id="barcode-custom-design" onclick="selectBarcodeFormat('custom')">
+              <div class="barcode-format-card-top">
+                <strong>Custom Barcode Design</strong>
+                <span class="barcode-chip">Default</span>
+              </div>
+              <div class="barcode-mini-preview"><svg width="120" height="32" viewBox="0 0 120 32"><path d="M8 8h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm10 0h2v16h-2zm6 0h4v16h-4zm8 0h2v16h-2zm6 0h2v16h-2zm6 0h4v16h-4zm8 0h4v16h-4z" fill="#111827"></path></svg></div>
+            </div>
+            <div class="barcode-option">
+              <label class="barcode-label">Search</label>
+              <input id="barcode-search" type="text" placeholder="Cari tipe barcode..." oninput="renderBarcodeFormatSelector()">
+            </div>
+            <div id="barcode-format-list" class="barcode-category"></div>
+          </div>
+        </aside>
+
+        <section class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Barcode Values</div>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-input-row">
+              <button class="barcode-button secondary" id="barcode-import-csv" type="button">📁 Import CSV</button>
+              <button class="barcode-button secondary" id="barcode-create-sequence" type="button">⏭ Create sequence</button>
+            </div>
+            <textarea id="barcode-values-input" class="barcode-textarea" placeholder="1234567890\nABC123\n..."></textarea>
+            <div class="barcode-help">Tekan Tab untuk menambahkan caption custom. Contoh: <strong>ABC123    Item A</strong> atau paste 2 kolom Excel (value + caption) lalu otomatis akan dipisah.</div>
+            <div class="barcode-output-toolbar">
+              <div class="barcode-button-group" style="display:flex;gap:8px;align-items:center;">
+                <button class="barcode-button ghost" id="barcode-copy-output" type="button">📋 Copy</button>
+                <button class="barcode-button ghost" id="barcode-print-labels" type="button">🖨 Print Labels</button>
+                <button class="barcode-button ghost" id="barcode-hide-toggle" type="button" title="Hide preview">🙈</button>
+                <button class="barcode-button ghost" id="barcode-play-toggle" type="button" title="Play/Pause scroll">▶</button>
+                <input id="barcode-play-speed" type="number" min="10" max="1000" value="150" style="width:84px;padding:6px;border-radius:8px;border:1px solid rgba(148,163,184,0.12);background:transparent;color:var(--text);" title="Scroll speed (px/s)">
+              </div>
+            </div>
+            <div id="barcode-preview" class="barcode-output-grid"></div>
+          </div>
+        </section>
+
+        <aside class="barcode-panel">
+          <div class="barcode-panel-header">
+            <div class="barcode-panel-title">Options</div>
+            <button class="barcode-button ghost" id="barcode-right-hide" title="Hide options" style="height:36px;display:flex;align-items:center;justify-content:center;padding:6px;">🙈</button>
+          </div>
+          <div class="barcode-panel-body">
+            <div class="barcode-options-wrap">
+              <div class="barcode-toggle">
+                <span>Show Text</span>
+                <input id="barcode-show-text" type="checkbox" checked>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Maximum Display Width (px)</label>
+                <input id="barcode-max-width" type="number" value="260" min="80" max="800">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Height (px)</label>
+                <input id="barcode-height" type="number" value="80" min="20" max="400">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Margin (px)</label>
+                <input id="barcode-margin" type="number" value="10" min="0" max="80">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Barcode Color</label>
+                <input id="barcode-color" type="color" value="#111827">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Background</label>
+                <input id="barcode-bg-color" type="color" value="#ffffff">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Font Size</label>
+                <input id="barcode-font-size" type="number" value="18" min="8" max="40">
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Text Alignment</label>
+                <select id="barcode-text-align">
+                  <option value="center">Center</option>
+                  <option value="left">Left</option>
+                  <option value="right">Right</option>
+                </select>
+              </div>
+              <div class="barcode-option">
+                <label class="barcode-label">Rotation</label>
+                <input id="barcode-rotation" type="number" value="0" min="0" max="360" step="90">
+              </div>
+              <div class="barcode-download-wrap">
+                <label class="barcode-label">Download format</label>
+                <select id="barcode-download-format">
+                  <option value="svg">SVG</option>
+                  <option value="png">PNG</option>
+                  <option value="jpeg">JPEG</option>
+                  <option value="pdf">PDF</option>
+                </select>
+                <button class="barcode-button primary" id="barcode-download-btn" type="button">⬇ Download</button>
+              </div>
+            </div>
+          </div>
+        </aside>
+      </div>
+
+      <div id="barcode-sequence-modal" class="barcode-sequence-modal" aria-hidden="true">
+        <div class="barcode-sequence-box">
+          <div class="barcode-panel-title" style="margin-bottom:12px;">Create sequence</div>
+          <div class="barcode-sequence-grid">
+            <div class="barcode-option"><label class="barcode-label">Prefix</label><input id="sequence-prefix" type="text" value=""></div>
+            <div class="barcode-option"><label class="barcode-label">Suffix</label><input id="sequence-suffix" type="text" value=""></div>
+            <div class="barcode-option"><label class="barcode-label">Start</label><input id="sequence-start" type="number" value="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Count</label><input id="sequence-count" type="number" value="10" min="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Step</label><input id="sequence-step" type="number" value="1" min="1"></div>
+            <div class="barcode-option"><label class="barcode-label">Padding</label><input id="sequence-padding" type="number" value="0" min="0" max="12"></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:8px;margin-top:16px;">
+            <button type="button" class="barcode-button ghost" id="barcode-sequence-cancel">Cancel</button>
+            <button type="button" class="barcode-button primary" id="barcode-sequence-apply">Apply</button>
+          </div>
+        </div>
+      </div>
+      <div id="barcode-print-view" class="barcode-print-view"></div>
+    </div>
+
+    <input id="barcode-csv-input" type="file" accept=".csv,.txt" style="display:none;">
+
+    <!-- EDITOR VIEW -->
+    <div class="view" id="editor">
+      <div class="editor-shell">
+
+        <!-- LEFT: Tool Panel -->
+        <div class="left-panel">
+          <div class="panel-hdr">🧩 Activities</div>
+          <div class="search-bar"><input type="text" placeholder="Cari activity..." oninput="filterTools(this.value)" id="tool-search"></div>
+          <div class="panel-body" id="tool-list">
+            <!-- Populated by JS -->
+          </div>
+        </div>
+
+        <!-- CENTER: Canvas + Toolbar + Bottom Panels -->
+        <div class="canvas-zone">
+          <div class="ribbon-toolbar" id="toolbar">
+            <div class="rba-toolbar-group">
+              <div class="rba-group-label">FILE</div>
+              <div class="toolbar-buttons-row">
+                <button class="tb-btn" onclick="createNew()" title="New (Ctrl+N)">+ New</button>
+                <button class="tb-btn" onclick="document.getElementById('fileInput').click()" title="Open (Ctrl+O)">📂 Open</button>
+                <button class="tb-btn" onclick="saveCurrentProject()" title="Save (Ctrl+S)">💾 Save</button>
+              </div>
+            </div>
+            <div class="rba-toolbar-group">
+              <div class="rba-group-label">EDIT</div>
+              <div class="toolbar-buttons-row">
+                <button class="tb-btn" onclick="undoAction()" title="Undo (Ctrl+Z)">↩ Undo</button>
+                <button class="tb-btn" onclick="redoAction()" title="Redo (Ctrl+Y)">↪ Redo</button>
+                <button class="tb-btn" onclick="selectAll()" title="Select All (Ctrl+A)">⬛ All</button>
+                <button class="tb-btn" onclick="copySelected()" title="Copy (Ctrl+C)">📋 Copy</button>
+                <button class="tb-btn" onclick="pasteNodes()" title="Paste (Ctrl+V)">📌 Paste</button>
+                <button class="tb-btn" onclick="deleteSelected()" title="Delete (Del)">🗑 Delete</button>
+              </div>
+            </div>
+            <div class="rba-toolbar-group">
+              <div class="rba-group-label">ARRANGE</div>
+              <div class="toolbar-buttons-row">
+                <button class="tb-btn" onclick="autoLayout()" title="Auto Arrange">⚡ Arrange</button>
+                <button class="tb-btn" onclick="alignNodes('left')" title="Align Left">⬛ Align L</button>
+                <button class="tb-btn" onclick="alignNodes('center')" title="Align Center">⬜ Center</button>
+                <button class="tb-btn" onclick="alignNodes('right')" title="Align Right">▪ Align R</button>
+              </div>
+            </div>
+            <div class="rba-toolbar-group">
+              <div class="rba-group-label">VIEW</div>
+              <div class="toolbar-buttons-row">
+                <button class="tb-btn" onclick="zoomIn()"   title="Zoom In (Ctrl+=)">🔍+</button>
+                <button class="tb-btn" onclick="zoomOut()"  title="Zoom Out (Ctrl+-)">🔍-</button>
+                <button class="tb-btn" onclick="resetZoom()" title="Fit (Ctrl+0)">⊡ Fit</button>
+                <button class="tb-btn" id="snap-btn" onclick="toggleSnap()" title="Snap to Grid">📐 Snap</button>
+                <button class="tb-btn" id="mm-btn" onclick="toggleMiniMap()" title="Mini Map">🗺 Map</button>
+              </div>
+            </div>
+            <div class="rba-toolbar-group ribbon-run-group">
+              <div class="rba-group-label">RUN</div>
+              <div class="toolbar-buttons-row">
+                <button class="tb-btn" onclick="exportWorkflow()" title="Export JSON">📤 Export</button>
+                <button class="tb-btn tb-run" onclick="runWorkflow()" id="tb-run-btn">▶ Run</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="canvas-area" id="canvas">
+            <div id="canvas-wrapper">
+              <svg id="svg-layer">
+                <defs>
+                  <marker id="arr-default" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#64748b"/>
+                  </marker>
+                  <marker id="arr-blue" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#3b82f6"/>
+                  </marker>
+                  <marker id="arr-green" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#10b981"/>
+                  </marker>
+                  <marker id="arr-orange" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#f97316"/>
+                  </marker>
+                  <marker id="arr-purple" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#a855f7"/>
+                  </marker>
+                  <marker id="arr-yellow" markerWidth="8" markerHeight="8" refX="7" refY="3" orient="auto" markerUnits="strokeWidth">
+                    <path d="M0,0 L7,3 L0,6 Z" fill="#eab308"/>
+                  </marker>
+                  <filter id="glow-blue"><feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/><feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+                </defs>
+                <path id="temp-line" d="" style="display:none;"/>
+              </svg>
+            </div>
+            <div class="zoom-badge" id="zoom-badge">100%</div>
+            <div id="minimap">
+              <canvas id="mm-canvas" width="180" height="130"></canvas>
+            </div>
+          </div>
+
+          <!-- BOTTOM PANELS -->
+          <div class="bottom-panels rba-bottom-panels">
+            <section class="panel panel-log log-strip rba-exec-log" id="log-strip">
+              <div class="panel-hdr log-hdr" onclick="toggleLog()">
+                <div class="log-hdr-title">
+                  <span>📋</span> EXECUTION LOG
+                  <div class="rec-badge" id="rec-badge2" style="display:none;">
+                    <div class="rec-dot"></div>RECORDING
+                  </div>
+                </div>
+                <div class="log-hdr-actions">
+                  <button class="hdr-btn" onclick="event.stopPropagation();clearLog()" style="font-size:10px;padding:3px 8px;">Clear</button>
+                  <button class="hdr-btn" onclick="event.stopPropagation();toggleLog()" style="font-size:10px;padding:3px 8px;" id="log-toggle-btn">▼</button>
+                </div>
+              </div>
+              <div class="panel-body log-body" id="log-body">
+                <div class="log-output log-content" id="log-output"></div>
+              </div>
+            </section>
+
+            <section class="panel panel-stats rba-bot-stats">
+              <div class="panel-hdr">BOT STATS</div>
+              <div class="panel-body stats-body">
+                <div class="stat-item"><span>Steps Run</span><span class="stat-val" id="st-steps">0</span></div>
+                <div class="stat-item"><span>Errors</span><span class="stat-val" id="st-errors">0</span></div>
+                <div class="stat-item"><span>Retries</span><span class="stat-val" id="st-retries">0</span></div>
+                <div class="stat-item"><span>Runtime</span><span class="stat-val" id="st-runtime">0:00</span></div>
+                <div class="stat-item"><span>ADB Cmds</span><span class="stat-val" id="st-adb">0</span></div>
+              </div>
+            </section>
+
+            <section class="panel panel-adb rba-adb-device">
+              <div class="panel-hdr">ADB DEVICE</div>
+              <div class="panel-body adb-body">
+                <div class="dev-label">Active ADB Device</div>
+                <select class="dev-select" id="device-selector">
+                  <option>No ADB Device</option>
+                </select>
+                <div class="adb-actions">
+                  <button class="dev-btn refresh" onclick="refreshDevices(true)">🔄 Refresh</button>
+                  <button class="dev-btn scrcpy" onclick="launchScrcpy()">📱 scrcpy</button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+        <button id="rba-toggle-props" class="rba-toggle-props-btn" title="Toggle properties" aria-label="Toggle properties panel">‹</button>
+        <!-- RIGHT: Properties Panel -->
+        <div class="right-panel">
+          <div class="panel-hdr properties-panel-header">⚙️ Properties</div>
+          <div class="panel-body" id="prop-panel">
+            <div class="prop-empty" id="prop-empty">
+              <div class="prop-empty-icon">⚡</div>
+              <div class="prop-empty-title">No node selected</div>
+              <div class="prop-empty-text">Pilih node di canvas untuk menampilkan properti.<br>Tarik activity dari kiri dan hubungkan port biru.</div>
+            </div>
+            <div id="prop-editor" style="display:none;">
+              <div class="prop-title">
+                <div class="prop-ico-big" id="pe-ico-big">📌</div>
+                <div>
+                  <div id="pe-type-lbl" style="font-size:10px;color:var(--dim2);text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px;"></div>
+                  <input class="prop-input" id="pe-name" placeholder="Node name" oninput="saveProp('name',this.value)" style="font-weight:700;padding:4px 8px;">
+                </div>
+              </div>
+              <div class="prop-sep"></div>
+
+              <!-- General -->
+              <div class="prop-group" id="pg-general">
+                <label class="prop-label">Delay Before (ms)</label>
+                <input class="prop-input" type="number" id="pe-delay" value="500" oninput="saveProp('delay',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Output Variable</label>
+                <input class="prop-input" id="pe-var" placeholder="e.g. result_text" oninput="saveProp('var',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Comment / Notes</label>
+                <textarea class="prop-input" id="pe-comment" rows="2" placeholder="Optional note..." oninput="saveProp('comment',this.value)" style="resize:vertical;"></textarea>
+              </div>
+
+              <!-- TAP / CLICK -->
+              <div class="prop-group" id="pg-tap" style="display:none;">
+                <label class="prop-label">Selector / XPath</label>
+                <input class="prop-input" id="pe-selector" placeholder="e.g. #btn-login or //button" oninput="saveProp('selector',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Koordinat X</label>
+                <input class="prop-input" type="number" id="pe-cx" placeholder="0" oninput="saveProp('cx',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Koordinat Y</label>
+                <input class="prop-input" type="number" id="pe-cy" placeholder="0" oninput="saveProp('cy',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Click Type</label>
+                <select class="prop-input prop-select" id="pe-click-type" onchange="saveProp('clickType',this.value)">
+                  <option value="single">Single Click</option>
+                  <option value="double">Double Click</option>
+                  <option value="right">Right Click</option>
+                  <option value="middle">Middle Click</option>
+                </select>
+              </div>
+
+              <!-- TYPE-INTO -->
+              <div class="prop-group" id="pg-type" style="display:none;">
+                <label class="prop-label">Selector / Field ID</label>
+                <input class="prop-input" id="pe-type-selector" placeholder="e.g. #username" oninput="saveProp('selector',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Text to Type</label>
+                <textarea class="prop-input" id="pe-text" rows="3" placeholder="Text atau {variable}" oninput="saveProp('text',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:8px;">Clear Before Type</label>
+                <select class="prop-input prop-select" id="pe-clear" onchange="saveProp('clearBefore',this.value)">
+                  <option value="yes">Yes — clear field first</option>
+                  <option value="no">No — append text</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Typing Speed (ms/char)</label>
+                <input class="prop-input" type="number" id="pe-typespeed" value="30" oninput="saveProp('typeSpeed',+this.value)">
+              </div>
+
+              <!-- OPEN BROWSER -->
+              <div class="prop-group" id="pg-browser" style="display:none;">
+                <label class="prop-label">URL</label>
+                <input class="prop-input" id="pe-url" placeholder="https://..." oninput="saveProp('url',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Profile Key (optional)</label>
+                <input class="prop-input" id="pe-profile-key" placeholder="e.g. tokopedia.com" oninput="saveProp('browserProfileKey',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Open Mode</label>
+                <select class="prop-input prop-select" id="pe-browser-open-mode" onchange="saveProp('browserOpenMode',this.value)">
+                  <option value="reuse_if_exists">Reuse if exists</option>
+                  <option value="always_open">Always open new</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Browser</label>
+                <select class="prop-input prop-select" id="pe-browser" onchange="saveProp('browser',this.value)">
+                  <option value="default">Default</option>
+                  <option value="chrome">Chrome</option>
+                  <option value="firefox">Firefox</option>
+                  <option value="edge">Edge</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Mode</label>
+                <select class="prop-input prop-select" id="pe-bmode" onchange="saveProp('browserMode',this.value)">
+                  <option value="normal">Normal</option>
+                  <option value="headless">Headless</option>
+                  <option value="incognito">Incognito</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Wait After Load (ms)</label>
+                <input class="prop-input" type="number" id="pe-bwait" value="2000" oninput="saveProp('waitAfterLoad',+this.value)">
+              </div>
+
+              <!-- SWIPE -->
+              <div class="prop-group" id="pg-swipe" style="display:none;">
+                <label class="prop-label">Direction</label>
+                <select class="prop-input prop-select" id="pe-dir" onchange="saveProp('dir',this.value)">
+                  <option value="up">Scroll Up</option>
+                  <option value="down">Scroll Down</option>
+                  <option value="left">Swipe Left</option>
+                  <option value="right">Swipe Right</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Duration (ms)</label>
+                <input class="prop-input" type="number" id="pe-dur" value="300" oninput="saveProp('dur',+this.value)">
+                <div class="prop-row2" style="margin-top:8px;">
+                  <div>
+                    <label class="prop-label">Start X</label>
+                    <input class="prop-input" type="number" id="pe-sx" oninput="saveProp('sx',+this.value)">
+                  </div>
+                  <div>
+                    <label class="prop-label">Start Y</label>
+                    <input class="prop-input" type="number" id="pe-sy" oninput="saveProp('sy',+this.value)">
+                  </div>
+                </div>
+                <button class="prop-input" type="button" onclick="pickScreenSwipe()" style="margin-top:8px;">Pick Swipe Points From Screen</button>
+                <div class="prop-row2" style="margin-top:8px;">
+                  <div>
+                    <label class="prop-label">End X</label>
+                    <input class="prop-input" type="number" id="pe-ex" oninput="saveProp('ex',+this.value)">
+                  </div>
+                  <div>
+                    <label class="prop-label">End Y</label>
+                    <input class="prop-input" type="number" id="pe-ey" oninput="saveProp('ey',+this.value)">
+                  </div>
+                </div>
+              </div>
+
+              <!-- MOBILE / DEVICE -->
+              <div class="prop-group" id="pg-mobile" style="display:none;">
+                <label class="prop-label">Device ID (kosong = perangkat aktif)</label>
+                <input class="prop-input" id="pe-device-id" placeholder="Kosong = perangkat aktif" oninput="saveProp('deviceId',this.value)">
+              </div>
+
+              <!-- MOBILE TAP -->
+              <div class="prop-group" id="pg-mobile-tap" style="display:none;">
+                <label class="prop-label">Match Mode</label>
+                <select class="prop-input prop-select" id="pe-mtap-match-mode" onchange="saveProp('matchMode',this.value); toggleMobileTapFields(this.value)">
+                  <option value="coordinate">Coordinate Only</option>
+                  <option value="xml_selector">XML Selector</option>
+                  <option value="image">Image Match</option>
+                  <option value="text">Text Match</option>
+                  <option value="image_or_text">Image + Text</option>
+                </select>
+                
+                <!-- Coordinate fields -->
+                <div id="pg-mtap-coords">
+                  <label class="prop-label" style="margin-top:8px;">Coordinate X</label>
+                  <input class="prop-input" type="number" id="pe-mtap-x" placeholder="X" oninput="saveProp('coordinateX',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Coordinate Y</label>
+                  <input class="prop-input" type="number" id="pe-mtap-y" placeholder="Y" oninput="saveProp('coordinateY',+this.value)">
+                  <div class="prop-help-text" style="font-size:12px;color:#9ca3af;margin-top:4px;">Coordinates used as fallback when XML selector tidak ditemukan.</div>
+                </div>
+
+                <!-- Enhanced Pick From Screen button -->
+                <button class="prop-input" type="button" onclick="pickScreenCoordinate()" style="margin-top:8px;">Pick Element (Image + Coords)</button>
+                <button id="btnQuickViewXml" class="prop-input" type="button" style="margin-top:8px;">Quick View XML</button>
+
+                <div id="pg-mtap-xml-selector" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Resource ID</label>
+                  <input class="prop-input" id="pe-mtap-resource-id" placeholder="com.example:id/login_button" oninput="saveProp('resourceId',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Text to Find</label>
+                  <input class="prop-input" id="pe-mtap-text-to-find" placeholder="Login" oninput="saveProp('textToFind',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Content Description</label>
+                  <input class="prop-input" id="pe-mtap-content-desc" placeholder="login button" oninput="saveProp('contentDesc',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">XPath</label>
+                  <input class="prop-input" id="pe-mtap-xpath" placeholder="/node[0]/node[1]/..." oninput="saveProp('xpath',this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-xml-timeout" value="30000" oninput="saveProp('timeoutMs',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Retry if not found</label>
+                  <input class="prop-input" type="checkbox" id="pe-mtap-retry-not-found" checked onchange="saveProp('retryOnNotFound', this.checked)">
+                </div>
+
+                <!-- ── Region Selector ── -->
+                <div class="prop-section" id="regionSelectorSection">
+                  <div class="prop-label">Area Pencarian Gambar</div>
+
+                  <div class="region-preview-wrap">
+                    <div class="region-preview-hint" id="regionHint">
+                      Klik "Ambil Screenshot" untuk menandai area
+                    </div>
+
+                    <div class="region-canvas-container" id="regionCanvasContainer" style="display:none; position:relative;">
+                      <canvas id="regionCanvas" style="display:block; cursor:crosshair; max-width:100%;"></canvas>
+                      <div id="regionOverlay" style="
+                        position:absolute;
+                        border: 2px solid #4f8ef7;
+                        background: rgba(79,142,247,0.15);
+                        pointer-events:none;
+                        display:none;
+                      "></div>
+                    </div>
+                  </div>
+
+                  <div class="region-actions" style="display:flex; gap:8px; margin-top:8px;">
+                    <button class="btn-secondary" id="btnCaptureScreen" type="button">
+                      📷 Ambil Screenshot
+                    </button>
+                    <button class="btn-secondary" id="btnClearRegion" type="button" style="display:none;">
+                      ✕ Hapus Area
+                    </button>
+                  </div>
+
+                  <div class="region-coords" id="regionCoords" style="display:none; margin-top:6px;">
+                    <span class="region-coord-label">Area:</span>
+                    <span id="regionCoordsText">—</span>
+                  </div>
+
+                  <input type="hidden" id="inputRegionX" data-node-prop="referenceImageRegionX" value="0">
+                  <input type="hidden" id="inputRegionY" data-node-prop="referenceImageRegionY" value="0">
+                  <input type="hidden" id="inputRegionW" data-node-prop="referenceImageRegionW" value="0">
+                  <input type="hidden" id="inputRegionH" data-node-prop="referenceImageRegionH" value="0">
+                </div>
+                
+                <!-- Template Image Preview (for IMAGE and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-template" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Target Preview</label>
+                  <img id="pe-mtap-template-preview" style="max-width:100%; max-height:100px; border:1px solid #374151; border-radius:4px; display:none; margin-top:4px;">
+                </div>
+                
+                <!-- Target Text (for TEXT and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-text" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Target Text</label>
+                  <input class="prop-input" id="pe-mtap-target-text" placeholder="OCR detected text" oninput="saveProp('targetText',this.value)">
+                </div>
+                
+                <!-- Match Threshold (for IMAGE and IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-threshold" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Match Confidence Threshold (0.0 - 1.0)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-threshold" min="0" max="1" step="0.05" value="0.75" oninput="saveProp('matchThreshold',+this.value)">
+                </div>
+                <div id="pg-mtap-fallback" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Fallback to raw coordinates if image not found</label>
+                  <input class="prop-input" type="checkbox" id="pe-mtap-fallback-raw" onchange="saveProp('allowRawCoordsFallback', this.checked)">
+                </div>
+                
+                <!-- Wait/Retry settings (for IMAGE, TEXT, IMAGE_OR_TEXT modes) -->
+                <div id="pg-mtap-wait" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Wait Timeout (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-timeout" value="30000" oninput="saveProp('waitTimeout',+this.value)">
+                  <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+                </div>
+                
+                <!-- Legacy fields (for backward compatibility) -->
+                <label class="prop-label" style="margin-top:8px;">Randomize Offset</label>
+                <input class="prop-input" type="checkbox" id="pe-mtap-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleTapOffsetRange(this.checked)">
+                <div id="pg-mtap-offset" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Offset Range (px)</label>
+                  <input class="prop-input" type="number" id="pe-mtap-offset" value="3" oninput="saveProp('offsetRange',+this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Tap Duration (ms)</label>
+                <input class="prop-input" type="number" id="pe-mtap-duration" value="100" oninput="saveProp('tapDuration',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Long Press</label>
+                <input class="prop-input" type="checkbox" id="pe-mtap-longpress" onchange="saveProp('isLongPress', this.checked)">
+              </div>
+
+              <!-- MOBILE WAIT TEXT -->
+              <div class="prop-group" id="pg-mobile-wait" style="display:none;">
+                <label class="prop-label">Target Text</label>
+                <input class="prop-input" id="pe-mwt-text" placeholder="Text to wait for" oninput="saveProp('waitText',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Match Type</label>
+                <select class="prop-input prop-select" id="pe-mwt-match" onchange="saveProp('matchType',this.value)">
+                  <option value="contains">Contains</option>
+                  <option value="exact">Exact Match</option>
+                  <option value="startsWith">Starts With</option>
+                  <option value="regex">Regex</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-mwt-case" onchange="saveProp('caseSensitive', this.checked)"> Case Sensitive</label>
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-mwt-timeout" value="10000" oninput="saveProp('timeout',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">OCR Region (optional)</label>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-mwt-ocr-x" placeholder="0" oninput="saveProp('ocrRegionX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-mwt-ocr-y" placeholder="0" oninput="saveProp('ocrRegionY',+this.value)"></div>
+                </div>
+                <button class="prop-input" type="button" onclick="pickWaitTextRegion()" style="margin-top:8px;">Pick OCR Region</button>
+                <button class="prop-input" type="button" onclick="detectTextFromScreen()" style="margin-top:8px;">Detect Text From Screen</button>
+                <div class="prop-row2" style="margin-top:8px; gap:8px;">
+                  <div><label class="prop-label">Width</label><input class="prop-input" type="number" id="pe-mwt-ocr-w" placeholder="0" oninput="saveProp('ocrRegionW',+this.value)"></div>
+                  <div><label class="prop-label">Height</label><input class="prop-input" type="number" id="pe-mwt-ocr-h" placeholder="0" oninput="saveProp('ocrRegionH',+this.value)"></div>
+                </div>
+                <label class="prop-label" style="margin-top:8px;">OCR Language</label>
+                <select class="prop-input prop-select" id="pe-mwt-lang" onchange="saveProp('ocrLanguage',this.value)">
+                  <option value="english">English</option>
+                  <option value="indonesian">Indonesian</option>
+                  <option value="auto">Auto-detect</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">On Found Action</label>
+                <select class="prop-input prop-select" id="pe-mwt-action" onchange="saveProp('onFoundAction',this.value); toggleWaitTextOffsetFields(this.value)">
+                  <option value="continue">Continue</option>
+                  <option value="tap_found_text">Tap Found Text</option>
+                  <option value="tap_offset">Tap Offset</option>
+                </select>
+                <div id="pe-mwt-offset-group" style="display:none; margin-top:8px;">
+                  <div class="prop-row2" style="gap:8px;">
+                    <div><label class="prop-label">Tap Offset X</label><input class="prop-input" type="number" id="pe-mwt-offset-x" value="0" oninput="saveProp('tapOffsetX',+this.value)"></div>
+                    <div><label class="prop-label">Tap Offset Y</label><input class="prop-input" type="number" id="pe-mwt-offset-y" value="0" oninput="saveProp('tapOffsetY',+this.value)"></div>
+                  </div>
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                <input class="prop-input" type="number" id="pe-mwt-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+              </div>
+
+              <!-- WAIT & TAP -->
+              <div class="prop-group" id="pg-wait-and-tap" style="display:none;">
+                <!-- TIMING -->
+                <div style="padding:0 0 8px 0; border-bottom:1px solid var(--dim3); margin-bottom:12px;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⏱ TIMING</div>
+                </div>
+                <label class="prop-label">Delay Before (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-delay" value="500" oninput="saveProp('delayBefore',+this.value)">
+                
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-timeout" value="30000" oninput="saveProp('timeout',+this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Maksimal waktu menunggu gambar muncul</div>
+                
+                <label class="prop-label" style="margin-top:8px;">Retry Interval (ms)</label>
+                <input class="prop-input" type="number" id="pe-wat-retry-interval" value="1000" oninput="saveProp('retryInterval',+this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Jarak waktu antar percobaan polling</div>
+
+                <!-- REFERENCE IMAGE -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">📸 REFERENCE IMAGE</div>
+                </div>
+                <div style="padding:10px; background:var(--bg2); border:1px solid var(--dim3); border-radius:8px; margin-bottom:8px;">
+                  <img id="pe-wat-ref-preview" style="display:none;width:100%;margin-bottom:8px;border:1px solid var(--border);border-radius:6px;max-height:160px;object-fit:contain;">
+                  <div id="pe-wat-ref-empty" style="text-align:center; color:var(--dim2); font-size:12px; padding:20px 0;">Belum ada gambar referensi</div>
+                </div>
+                <button class="prop-input" type="button" onclick="captureWaitTapImage()" style="margin-bottom:6px; background:#1a3a5c; border:1px solid #2a5a8c; color:#7cc4f8;">📸 Capture From Screen</button>
+                <input class="prop-input" type="file" id="pe-wat-ref-img" accept="image/*" onchange="handleWaitTapImage(this)" style="margin-bottom:8px;">
+                
+                <label class="prop-label">Confidence Threshold (%)</label>
+                <input class="prop-input" type="range" id="pe-wat-confidence" min="50" max="100" value="80" oninput="saveProp('confidence',+this.value); updateWaitTapConfidence(this.value)" style="width:100%;">
+                <div id="pe-wat-confidence-value" style="font-size:11px; color:var(--dim2); text-align:center; margin-top:4px;">80%</div>
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Semakin tinggi = lebih ketat, semakin rendah = lebih toleran</div>
+
+                <!-- TAP COORDINATE -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">🎯 TAP COORDINATE</div>
+                </div>
+                <div class="prop-row2" style="gap:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-wat-x" value="0" oninput="saveProp('tapX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-wat-y" value="0" oninput="saveProp('tapY',+this.value)"></div>
+                </div>
+                <div style="font-size:10px; color:var(--dim3); margin-top:4px;">0,0 = tap ke tengah gambar yang ditemukan</div>
+                <button class="prop-input" type="button" onclick="pickWaitTapCoordinate()" style="margin-top:8px;">🎯 Pick Tap Point</button>
+                
+                <label class="prop-label" style="margin-top:12px;">Randomize Offset</label>
+                <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-size:12px;">
+                  <input type="checkbox" id="pe-wat-randomize" onchange="saveProp('randomizeTapOffset', this.checked); toggleWaitTapOffsetRange(this.checked)">
+                  <span>Acak posisi tap ±<span id="pe-wat-offset-display">5</span>px</span>
+                </label>
+                <div id="pg-wat-offset-range" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Range (px)</label>
+                  <input class="prop-input" type="number" id="pe-wat-offset" value="5" oninput="saveProp('offsetRange',+this.value); document.getElementById('pe-wat-offset-display').textContent=this.value;">
+                </div>
+
+                <!-- SEARCH REGION (optional) -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⬜ SEARCH REGION (Optional)</div>
+                </div>
+                <div class="prop-row2" style="gap:8px; margin-bottom:8px;">
+                  <div><label class="prop-label">X</label><input class="prop-input" type="number" id="pe-wat-region-x" placeholder="0" oninput="saveProp('searchRegionX',+this.value)"></div>
+                  <div><label class="prop-label">Y</label><input class="prop-input" type="number" id="pe-wat-region-y" placeholder="0" oninput="saveProp('searchRegionY',+this.value)"></div>
+                </div>
+                <div class="prop-row2" style="gap:8px;">
+                  <div><label class="prop-label">W</label><input class="prop-input" type="number" id="pe-wat-region-w" placeholder="0" oninput="saveProp('searchRegionW',+this.value)"></div>
+                  <div><label class="prop-label">H</label><input class="prop-input" type="number" id="pe-wat-region-h" placeholder="0" oninput="saveProp('searchRegionH',+this.value)"></div>
+                </div>
+                <div style="font-size:10px; color:var(--dim3); margin-top:4px;">Kosong = cari di seluruh layar</div>
+                <button class="prop-input" type="button" onclick="pickWaitTapRegion()" style="margin-top:8px;">⬜ Pick Region</button>
+
+                <!-- TIMEOUT ACTION -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">⚠ IF TIMEOUT</div>
+                </div>
+                <label class="prop-label">Action</label>
+                <select class="prop-input prop-select" id="pe-wat-onfail" onchange="saveProp('onTimeoutAction',this.value); toggleWaitTapGoto(this.value)">
+                  <option value="stop">Stop Flow (Error)</option>
+                  <option value="skip">Skip Node</option>
+                  <option value="goto">Go To Step</option>
+                </select>
+                <div id="pg-wat-goto" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Step Index</label>
+                  <input class="prop-input" type="number" id="pe-wat-goto-step" placeholder="Step index" oninput="saveProp('gotoStepIndex',+this.value)">
+                </div>
+
+                <!-- OUTPUT & NOTES -->
+                <div style="padding:12px 0 8px 0; border-bottom:1px solid var(--dim3); margin:12px 0;">
+                  <div style="font-size:10px; font-weight:700; color:var(--dim2); letter-spacing:0.05em; text-transform:uppercase;">📝 OUTPUT</div>
+                </div>
+                <label class="prop-label">Output Variable</label>
+                <input class="prop-input" type="text" id="pe-wat-output-var" placeholder="e.g., wait_result" oninput="saveProp('outputVariable',this.value)">
+                <div style="font-size:10px; color:var(--dim3); margin-top:2px;">Nilai: 'found' | 'timeout' | 'skipped'</div>
+                
+                <label class="prop-label" style="margin-top:12px;">Notes / Comment</label>
+                <textarea class="prop-input" id="pe-wat-comment" style="height:60px; resize:vertical;" placeholder="Optional notes..." onchange="saveProp('comment',this.value)"></textarea>
+              </div>
+
+              <!-- MOBILE KEYEVENT -->
+              <div class="prop-group" id="pg-mobile-key" style="display:none;">
+                <label class="prop-label">Key Code</label>
+                <select class="prop-input prop-select" id="pe-mobile-keycode" onchange="saveProp('keyCode',this.value)">
+                  <option value="3">HOME (3)</option>
+                  <option value="4">BACK (4)</option>
+                  <option value="82">MENU (82)</option>
+                  <option value="26">POWER (26)</option>
+                  <option value="24">VOLUME_UP (24)</option>
+                  <option value="25">VOLUME_DOWN (25)</option>
+                  <option value="66">ENTER (66)</option>
+                  <option value="67">DEL (67)</option>
+                  <option value="61">TAB (61)</option>
+                  <option value="62">SPACE (62)</option>
+                  <option value="84">SEARCH (84)</option>
+                  <option value="27">CAMERA (27)</option>
+                  <option value="19">DPAD_UP (19)</option>
+                  <option value="20">DPAD_DOWN (20)</option>
+                  <option value="21">DPAD_LEFT (21)</option>
+                  <option value="22">DPAD_RIGHT (22)</option>
+                  <option value="23">DPAD_CENTER (23)</option>
+                  <option value="187">APP_SWITCH (187)</option>
+                  <option value="83">NOTIFICATION (83)</option>
+                  <option value="custom">Custom</option>
+                </select>
+                <div id="pg-mobile-key-custom" style="display:none; margin-top:8px;">
+                  <label class="prop-label">Custom Key Code</label>
+                  <input class="prop-input" type="number" id="pe-mobile-key-custom" oninput="saveProp('customKeyCode',+this.value)">
+                </div>
+                <label class="prop-label" style="margin-top:8px;">Long Press</label>
+                <input class="prop-input" type="checkbox" id="pe-mobile-key-long" onchange="saveProp('longPress',this.checked)">
+                <label class="prop-label" style="margin-top:8px;">Long Press Duration (ms)</label>
+                <input class="prop-input" type="number" id="pe-mobile-key-duration" value="1000" oninput="saveProp('longPressDuration',+this.value)">
+              </div>
+
+              <!-- MOBILE SCREENSHOT -->
+              <div class="prop-group" id="pg-mobile-screenshot" style="display:none;">
+                <label class="prop-label">Save To Path</label>
+                <input class="prop-input" id="pe-ms-save-path" placeholder="/Users/me/screenshots" oninput="saveProp('savePath',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Filename Pattern</label>
+                <input class="prop-input" id="pe-ms-filename" value="screenshot_{timestamp}" oninput="saveProp('filenamePattern',this.value)">
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-ms-timestamp" onchange="saveProp('includeTimestamp',this.checked)" checked> Include Timestamp</label>
+                <label class="prop-label" style="margin-top:8px;">Also Save to Variable</label>
+                <input class="prop-input" id="pe-ms-var" placeholder="screenshot_base64" oninput="saveProp('outputVariable',this.value)">
+              </div>
+
+              <!-- OPEN APP -->
+              <div class="prop-group" id="pg-open-app" style="display:none;">
+                <label class="prop-label">Package Name</label>
+                <input class="prop-input" id="pe-open-package" placeholder="com.whatsapp" oninput="saveProp('packageName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Activity Name</label>
+                <input class="prop-input" id="pe-open-activity" placeholder="com.whatsapp.Main" oninput="saveProp('activityName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Wait After Launch (ms)</label>
+                <input class="prop-input" type="number" id="pe-open-wait" value="2000" oninput="saveProp('waitAfterLaunch',+this.value)">
+                <label class="prop-label" style="margin-top:8px; display:flex; align-items:center; gap:10px;"><input type="checkbox" id="pe-open-force-stop" onchange="saveProp('forceStopFirst',this.checked)"> Force Stop First</label>
+              </div>
+
+              <!-- CLOSE APP -->
+              <div class="prop-group" id="pg-close-app" style="display:none;">
+                <label class="prop-label">Package Name</label>
+                <input class="prop-input" id="pe-close-package" placeholder="com.whatsapp" oninput="saveProp('packageName',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Wait After (ms)</label>
+                <input class="prop-input" type="number" id="pe-close-wait" value="500" oninput="saveProp('waitAfter',+this.value)">
+              </div>
+
+              <!-- READ UI ELEMENT -->
+              <div class="prop-group" id="pg-read-ui-element" style="display:none;">
+                <label class="prop-label">Selector Type</label>
+                <select class="prop-input prop-select" id="pe-read-type" onchange="saveProp('selectorType',this.value)">
+                  <option value="resource-id">Resource ID</option>
+                  <option value="content-desc">Content Description</option>
+                  <option value="text">Text</option>
+                  <option value="xpath">XPath</option>
+                  <option value="class">Class</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Selector Value</label>
+                <input class="prop-input" id="pe-read-value" placeholder="Enter selector value" oninput="saveProp('selectorValue',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Attribute To Read</label>
+                <select class="prop-input prop-select" id="pe-read-attr" onchange="saveProp('attribute',this.value)">
+                  <option value="text">text</option>
+                  <option value="contentDescription">contentDescription</option>
+                  <option value="bounds">bounds</option>
+                  <option value="isEnabled">isEnabled</option>
+                  <option value="isChecked">isChecked</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-read-timeout" value="5000" oninput="saveProp('timeout',+this.value)">
+              </div>
+
+              <!-- EXTRACT TEXT -->
+              <div class="prop-group" id="pg-extract" style="display:none;">
+                <label class="prop-label">CSS Selector / XPath</label>
+                <input class="prop-input" id="pe-ext-sel" placeholder="e.g. .price or //span[@class='price']" oninput="saveProp('selector',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Attribute (kosong = innerText)</label>
+                <input class="prop-input" id="pe-ext-attr" placeholder="e.g. href, value, data-id" oninput="saveProp('attribute',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Regex Filter</label>
+                <input class="prop-input" id="pe-ext-regex" placeholder="e.g. \\d+" oninput="saveProp('regex',this.value)">
+              </div>
+
+              <!-- IF CONDITION -->
+              <div class="prop-group" id="pg-condition" style="display:none;">
+                <label class="prop-label">Condition Expression</label>
+                <input class="prop-input" id="pe-cond" placeholder="e.g. {price} > 100" oninput="saveProp('condition',this.value)">
+                <label class="prop-label" style="margin-top:8px;">True → Step</label>
+                <input class="prop-input" id="pe-true-step" placeholder="Node ID atau nama" oninput="saveProp('trueStep',this.value)">
+                <label class="prop-label" style="margin-top:8px;">False → Step</label>
+                <input class="prop-input" id="pe-false-step" placeholder="Node ID atau nama" oninput="saveProp('falseStep',this.value)">
+              </div>
+
+              <!-- REPEAT / LOOP -->
+              <div class="prop-group" id="pg-loop" style="display:none;">
+                <label class="prop-label">Repeat Count</label>
+                <input class="prop-input" type="number" id="pe-loop-count" value="3" min="1" oninput="saveProp('loopCount',+this.value)">
+                <label class="prop-label" style="margin-top:8px;">Loop Variable Name</label>
+                <input class="prop-input" id="pe-loop-var" placeholder="i" oninput="saveProp('loopVar',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Break Condition</label>
+                <input class="prop-input" id="pe-loop-break" placeholder="e.g. {i} >= 5" oninput="saveProp('breakCondition',this.value)">
+              </div>
+
+              <!-- API REQUEST -->
+              <div class="prop-group" id="pg-api" style="display:none;">
+                <label class="prop-label">URL</label>
+                <input class="prop-input" id="pe-api-url" placeholder="https://api.example.com/endpoint" oninput="saveProp('apiUrl',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Method</label>
+                <select class="prop-input prop-select" id="pe-api-method" onchange="saveProp('apiMethod',this.value)">
+                  <option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Headers (JSON)</label>
+                <textarea class="prop-input" id="pe-api-headers" rows="2" placeholder='{"Authorization":"Bearer ..."}' oninput="saveProp('apiHeaders',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:8px;">Body (JSON)</label>
+                <textarea class="prop-input" id="pe-api-body" rows="3" placeholder='{"key":"value"}' oninput="saveProp('apiBody',this.value)"></textarea>
+              </div>
+
+              <!-- CRON / SCHEDULER -->
+              <div class="prop-group" id="pg-cron" style="display:none;">
+                <label class="prop-label">Cron Expression</label>
+                <input class="prop-input" id="pe-cron" placeholder="e.g. 0 9 * * 1-5" oninput="saveProp('cron',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Timezone</label>
+                <input class="prop-input" id="pe-tz" placeholder="Asia/Jakarta" oninput="saveProp('timezone',this.value)">
+              </div>
+
+              <!-- READ/WRITE FILE -->
+              <div class="prop-group" id="pg-file" style="display:none;">
+                <label class="prop-label">File Path</label>
+                <input class="prop-input" id="pe-filepath" placeholder="C:/data/file.csv" oninput="saveProp('filePath',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Delimiter (CSV)</label>
+                <input class="prop-input" id="pe-delim" value="," oninput="saveProp('delimiter',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Encoding</label>
+                <select class="prop-input prop-select" id="pe-encoding" onchange="saveProp('encoding',this.value)">
+                  <option>UTF-8</option><option>ISO-8859-1</option><option>ASCII</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Skip Header Row</label>
+                <select class="prop-input prop-select" id="pe-skip-hdr" onchange="saveProp('skipHeader',this.value)">
+                  <option value="yes">Yes</option><option value="no">No</option>
+                </select>
+              </div>
+
+              <!-- OCR -->
+              <div class="prop-group" id="pg-ocr" style="display:none;">
+                <label class="prop-label">Source (url / selector / screenshot)</label>
+                <input class="prop-input" id="pe-ocr-src" placeholder="screenshot or https://..." oninput="saveProp('ocrSource',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Language</label>
+                <input class="prop-input" id="pe-ocr-lang" value="eng" placeholder="eng, ind..." oninput="saveProp('ocrLang',this.value)">
+              </div>
+
+              <!-- WAIT ELEMENT -->
+              <div class="prop-group" id="pg-wait" style="display:none;">
+                <label class="prop-label">Selector to Wait For</label>
+                <input class="prop-input" id="pe-wait-sel" placeholder=".loading-spinner" oninput="saveProp('waitSelector',this.value)">
+                <label class="prop-label" style="margin-top:8px;">Wait Condition</label>
+                <select class="prop-input prop-select" id="pe-wait-cond" onchange="saveProp('waitCondition',this.value)">
+                  <option value="visible">Visible</option>
+                  <option value="hidden">Hidden / Disappear</option>
+                  <option value="clickable">Clickable</option>
+                  <option value="present">Present in DOM</option>
+                </select>
+                <label class="prop-label" style="margin-top:8px;">Timeout (ms)</label>
+                <input class="prop-input" type="number" id="pe-wait-timeout" value="10000" oninput="saveProp('waitTimeout',+this.value)">
+              </div>
+
+              <!-- EXCEL SUBMIT WEB -->
+              <div class="prop-group" id="pg-excel-submit-web" style="display:none;">
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-bottom:8px;">📁 SUMBER FILE</div>
+                <label class="prop-label">File Excel</label>
+                <input class="prop-input" id="pe-esw-filepath" placeholder="Path file atau $variable" oninput="saveProp('filePath',this.value)">
+                <div style="font-size:9px;color:var(--dim);margin-top:4px;">Path absolut ke file .xlsx atau variabel hasil download</div>
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📊 FILTER KOLOM</div>
+                <label class="prop-label">Kolom Filter 1</label>
+                <input class="prop-input" id="pe-esw-filter-col1" placeholder="e.g. L" style="width:80px;" oninput="saveProp('filterCol1',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Filter 1</label>
+                <input class="prop-input" id="pe-esw-filter-col1-label" placeholder="e.g. Waktu Gagal PU" oninput="saveProp('filterCol1Label',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Kolom Filter 2</label>
+                <input class="prop-input" id="pe-esw-filter-col2" placeholder="e.g. J" style="width:80px;" oninput="saveProp('filterCol2',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Filter 2</label>
+                <input class="prop-input" id="pe-esw-filter-col2-label" placeholder="e.g. Waktu Pickup" oninput="saveProp('filterCol2Label',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Kondisi Filter</label>
+                <select class="prop-input prop-select" id="pe-esw-filter-condition" onchange="saveProp('filterCondition',this.value)">
+                  <option value="Blank (kosong)">Blank (kosong)</option>
+                  <option value="Tidak Blank (berisi)">Tidak Blank (berisi)</option>
+                </select>
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📋 PENGAMBILAN DATA</div>
+                <label class="prop-label">Kolom Data (AWB)</label>
+                <input class="prop-input" id="pe-esw-data-column" placeholder="e.g. B" style="width:80px;" oninput="saveProp('dataColumn',this.value.toUpperCase().substring(0,1))">
+                <label class="prop-label" style="margin-top:6px;">Label Kolom Data</label>
+                <input class="prop-input" id="pe-esw-data-column-label" placeholder="e.g. Nomor AWB" oninput="saveProp('dataColumnLabel',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Baris Header</label>
+                <input class="prop-input" type="number" id="pe-esw-header-row" min="1" oninput="saveProp('headerRow',+this.value)">
+                <label class="prop-label" style="margin-top:6px;">Batch Size</label>
+                <input class="prop-input" type="number" id="pe-esw-batch-size" min="1" max="10000" oninput="saveProp('batchSize',+this.value)">
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">🌐 TARGET WEB</div>
+                <label class="prop-label">XPath Input Field</label>
+                <textarea class="prop-input" id="pe-esw-xpath-input" rows="2" placeholder="/html/body/div[2]/..." style="font-size:10px;font-family:monospace;" oninput="saveProp('xpathInput',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:6px;">XPath Tombol Submit</label>
+                <textarea class="prop-input" id="pe-esw-xpath-button" rows="2" placeholder="/html/body/div[2]/..." style="font-size:10px;font-family:monospace;" oninput="saveProp('xpathButton',this.value)"></textarea>
+                <label class="prop-label" style="margin-top:6px;">Delay Antar Batch (ms)</label>
+                <input class="prop-input" type="number" id="pe-esw-delay-between" min="500" oninput="saveProp('delayBetweenBatch',+this.value)">
+                <label class="prop-label" style="margin-top:6px;">Delay Sebelum Klik (ms)</label>
+                <input class="prop-input" type="number" id="pe-esw-delay-before-click" min="0" oninput="saveProp('delayBeforeClick',+this.value)">
+
+                <div style="font-size:11px;color:var(--dim);font-weight:600;margin-top:12px;margin-bottom:8px;">📤 OUTPUT VARIABEL</div>
+                <label class="prop-label">Variabel Total Data</label>
+                <input class="prop-input" id="pe-esw-output-total-data" placeholder="e.g. totalData" oninput="saveProp('outputTotalData',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Variabel Total Batch</label>
+                <input class="prop-input" id="pe-esw-output-total-batch" placeholder="e.g. totalBatch" oninput="saveProp('outputTotalBatch',this.value)">
+                <label class="prop-label" style="margin-top:6px;">Variabel Batch Selesai</label>
+                <input class="prop-input" id="pe-esw-output-batch-done" placeholder="e.g. batchSelesai" oninput="saveProp('outputBatchDone',this.value)">
+              </div>
+
+              <div class="prop-sep"></div>
+
+          <div class="prop-group" id="var-panel">
+            <div class="prop-title" style="justify-content:space-between;">
+              <span>📦 Variables</span>
+              <span id="var-count" style="font-size:11px;color:var(--dim);">(0)</span>
+            </div>
+            <div id="var-inspector" style="min-height:90px;background:rgba(255,255,255,0.04);border:1px solid var(--border);border-radius:10px;padding:10px;color:var(--dim);font-size:11px;overflow-y:auto;"></div>
+          </div>
+
+              <!-- Quick Actions -->
+              <button class="btn-full btn-run-step" onclick="runSingleStep()">▶ Run This Step</button>
+              <button class="btn-full btn-draw-conn" onclick="startConnectionDraw()">🔗 Draw Connection</button>
+              <button class="btn-full btn-dup" onclick="duplicateSelected()">📋 Duplicate Node</button>
+              <button class="btn-full btn-delete" onclick="deleteSelected()">🗑️ Delete Node</button>
+            </div>
+          </div>
+
+          <!-- Device Section -->
+          <div class="dev-section">
+            <div class="dev-label">Active ADB Device</div>
+            <select class="dev-select" id="device-selector">
+              <option>No ADB Device</option>
+            </select>
+            <div class="dev-actions">
+              <button class="dev-btn refresh" onclick="refreshDevices(true)">🔄 Refresh</button>
+              <button class="dev-btn scrcpy" onclick="launchScrcpy()">📱 scrcpy</button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+    <div class="view" id="excel-loop"></div>
+
+    <!-- WHATSAPP BOT VIEW -->
+    <div class="view" id="whatsapp-bot"></div>
+
+    <!-- FLOW RETUR VIEW -->
+    <div class="view" id="flow-retur">
+      <div class="fr-section" style="padding:18px;display:flex;gap:14px;flex-direction:column;flex:1;min-height:0;overflow:auto;">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+          <div>
+            <div class="fr-section-title">🔁 Flow Retur</div>
+            <div style="color:var(--dim);font-size:13px;margin-top:6px;">Automasi alur retur dengan konfigurasi per-device dan step-by-step.</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <select id="fr-profile-select" class="prop-input prop-select" style="min-width:220px;"></select>
+            <button id="fr-btn-add-profile" class="hdr-btn">+ Profile</button>
+            <button id="fr-btn-edit-profile" class="hdr-btn">Edit</button>
+            <button id="fr-btn-delete-profile" class="hdr-btn">Hapus</button>
+          </div>
+        </div>
+
+        <div id="fr-device-info" style="
+  margin-bottom:12px;
+  padding:10px 14px;
+  background:var(--bg-secondary,#1a1a2e);
+  border-radius:8px;
+  border:1px solid var(--border-color,#333);
+  font-size:13px;
+  transition: all 0.3s ease;
+">
+  <span class="fr-device-badge fr-device-disconnected">
+    ⚠️ Mendeteksi device...
+  </span>
+</div>
+        <div style="display:flex;gap:12px;">
+          <div style="flex:1;display:flex;flex-direction:column;gap:12px;">
+            <div style="display:flex;align-items:center;justify-content:space-between;">
+              <div style="font-weight:700;color:var(--text);">Steps</div>
+              <div id="fr-steps-status" class="fr-badge fr-badge-warn">Belum dikonfigurasi</div>
+            </div>
+            <div id="fr-steps-grid" class="fr-steps-grid"></div>
+
+            <div style="display:flex;gap:8px;align-items:center;margin-top:6px;">
+              <button id="fr-btn-run" class="tb-btn tb-run">▶ Jalankan</button>
+              <button id="fr-btn-stop" class="tb-btn tb-stop" style="display:none;">■ Hentikan</button>
+              <button id="fr-btn-clear-log" class="tb-btn">🧹 Bersihkan Log</button>
+            </div>
+
+            <div style="display:flex;gap:10px;margin-top:8px;align-items:center;flex-wrap:wrap;">
+              <label style="font-size:12px;color:var(--dim);">Timeout (s)</label>
+              <input id="fr-timeout" class="prop-input" style="width:80px;" value="30">
+
+              <label style="font-size:12px;color:var(--dim);">Extra wait (s)</label>
+              <input id="fr-extra-wait" class="prop-input" style="width:80px;" value="10">
+
+              <label style="font-size:12px;color:var(--dim);">Delay tiap step (ms)</label>
+              <input id="fr-step-delay" class="prop-input" style="width:100px;" value="500">
+            </div>
+
+            <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+              <div style="display:flex;align-items:center;gap:6px;font-size:13px;">
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="text" checked> Loop while text exists
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="image"> Loop while image exists
+                </label>
+                <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                  <input type="radio" name="fr-loop-mode" value="count"> Loop N times
+                </label>
+                <input id="fr-loop-count-value" class="prop-input" style="width:80px;" value="10">
+                <input id="fr-loop-text-value" class="prop-input" style="min-width:160px;" placeholder="Teks kondisi loop">
+              </div>
+            </div>
+          </div>
+
+          <div style="width:340px;display:flex;flex-direction:column;gap:12px;">
+            <div class="fr-section-title">Preview & Log</div>
+            <div style="background:var(--bg2);border:1px solid var(--border);padding:8px;border-radius:8px;min-height:160px;display:flex;flex-direction:column;">
+              <div style="font-size:12px;color:var(--dim);margin-bottom:8px;">Live Preview (saat klik pick step)</div>
+              <div id="fr-preview" style="flex:1;background:#000;border-radius:6px;overflow:hidden;display:flex;align-items:center;justify-content:center;color:#777;">Belum ada preview</div>
+            </div>
+
+            <div style="background:var(--bg2);border:1px solid var(--border);padding:8px;border-radius:8px;min-height:220px;display:flex;flex-direction:column;">
+              <div style="font-size:12px;color:var(--dim);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                <div>Log</div>
+                <div style="font-size:11px;color:var(--dim);">Realtime</div>
+              </div>
+              <div id="fr-log" style="flex:1;overflow:auto;padding:6px;background:transparent;border-radius:6px;font-size:12px;color:var(--text);"></div>
+            </div>
+
+            <div style="border-top:1px dashed var(--border);padding-top:8px;display:flex;flex-direction:column;gap:6px;">
+              <div style="font-size:12px;color:var(--dim);">Signature offsets</div>
+              <div style="display:flex;gap:6px;align-items:center;">
+                <input id="fr-sig-sx" class="prop-input" style="width:80px;" value="-100">
+                <input id="fr-sig-sy" class="prop-input" style="width:80px;" value="0">
+                <input id="fr-sig-ex" class="prop-input" style="width:80px;" value="100">
+                <input id="fr-sig-ey" class="prop-input" style="width:80px;" value="30">
+                <input id="fr-sig-dur" class="prop-input" style="width:100px;" value="800">
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RECORDER VIEW -->
+    <div class="view" id="recorder">
+      <div class="dash-view" style="display:flex;flex-direction:column;min-height:0;">
+        <div class="dash-title">🎬 Macro Recorder</div>
+        <div class="dash-sub">Rekam tindakan sistem-wide di seluruh layar PC: klik mouse, keyboard, dan playback otomatis.</div>
+        <div id="macro-recorder-mount" style="flex:1;min-height:0;"></div>
+      </div>
+    </div>
+
+    <!-- SETTINGS VIEW -->
+    <div class="view" id="settings">
+      <div class="settings-view">
+        <div class="dash-title" style="margin-bottom:20px;">⚙️ Pengaturan</div>
+        <div class="settings-grid">
+          <div class="setting-card">
+            <div class="setting-card-ttl">🌐 Bahasa / Language</div>
+            <label class="prop-label">Language</label>
+            <select class="prop-input prop-select" id="lang-sel" onchange="setLang(this.value)">
+              <option value="id">Bahasa Indonesia</option>
+              <option value="en">English</option>
+            </select>
+          </div>
+          <div class="setting-card">
+            <div class="setting-card-ttl">📱 ADB Configuration</div>
+            <label class="prop-label">ADB Path (kosong = auto-detect)</label>
+            <input class="prop-input" id="adb-path-input" placeholder="C:/platform-tools/adb.exe" style="margin-bottom:8px;">
+            <button class="hdr-btn" onclick="saveAdbPath()" style="width:100%;margin-bottom:6px;">Save ADB Path</button>
+            <button class="hdr-btn" onclick="showAdbInfo()" style="width:100%;margin-bottom:6px;">🔍 Check ADB Status</button>
+            <button class="hdr-btn" onclick="clearRuntimeCacheFromUi()" style="width:100%;">🧹 Clear Cache</button>
+            <div id="adb-status-msg" style="font-size:11px;color:var(--dim2);margin-top:8px;"></div>
+          </div>
+          <div class="setting-card">
+            <div class="setting-card-ttl">⚙️ Editor Preferences</div>
+            <div class="toggle-row">
+              <label>Auto-save workflows</label>
+              <label class="toggle"><input type="checkbox" id="pref-autosave" onchange="savePref()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <label>Confirm on delete</label>
+              <label class="toggle"><input type="checkbox" id="pref-confirm" checked onchange="savePref()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <label>Snap to Grid (default)</label>
+              <label class="toggle"><input type="checkbox" id="pref-snap" onchange="savePref()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <label>Show step numbers</label>
+              <label class="toggle"><input type="checkbox" id="pref-stepnum" checked onchange="savePref()"><span class="toggle-slider"></span></label>
+            </div>
+            <div class="toggle-row">
+              <label>Animate connections</label>
+              <label class="toggle"><input type="checkbox" id="pref-animate" checked onchange="savePref()"><span class="toggle-slider"></span></label>
+            </div>
+          </div>
+          <div class="setting-card">
+            <div class="setting-card-ttl">ℹ️ About</div>
+            <div style="font-size:12px;line-height:1.8;color:var(--dim2);">
+              <strong style="color:var(--text);">RBA Studio Pro</strong><br>
+              Version: <strong style="color:var(--text);">2.0</strong><br>
+              Developer: <strong style="color:var(--text);">Arya Septian</strong><br>
+              <a href="#" onclick="window.electronAPI.send('open-external','mailto:arya@example.com')" style="color:var(--accent);">arya@example.com</a><br><br>
+              <button class="hdr-btn" onclick="resetAllSettings()" style="width:100%;">🔄 Reset All Settings</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="rba-statusbar" class="rba-statusbar">
+      <div class="rba-status-item"><span class="status-label">ADB</span><span id="status-adb">Unknown</span></div>
+      <div class="rba-status-item"><span class="status-label">CPU</span><span id="status-cpu">0%</span></div>
+      <div class="rba-status-item"><span class="status-label">Memory</span><span id="status-memory">--</span></div>
+      <div class="rba-status-item status-app">v2.0.0</div>
+    </div>
+  </div><!-- /.main -->
+</div><!-- /.shell -->
+
+<!-- Hidden file input -->
+<input type="file" id="fileInput" accept=".json" style="display:none" onchange="handleImport(this)">
+
+<script src="renderer.js"></script>
+  <script>
+  (function() {
+    var btn = document.getElementById('rba-toggle-props');
+    if (!btn) return;
+
+    btn.addEventListener('click', function() {
+      var panel = document.querySelector('.right-panel');
+      if (!panel) return;
+      var isNowCollapsed = panel.classList.toggle('rba-collapsed');
+      btn.textContent = isNowCollapsed ? '›' : '‹';
+      btn.title = isNowCollapsed ? 'Show properties' : 'Hide properties';
+    });
+  })();
+  </script>
+</body>
+</html>

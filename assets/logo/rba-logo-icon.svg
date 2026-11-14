@@ -1,0 +1,21 @@
+<svg width="64" height="64" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(32 32) rotate(90) scale(30)">
+      <stop offset="0%" stop-color="#0D1117" stop-opacity="0.95"/>
+      <stop offset="100%" stop-color="#0D1117" stop-opacity="0.2"/>
+    </radialGradient>
+    <linearGradient id="cgrad" x1="22" y1="12" x2="42" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#00D4AA"/>
+      <stop offset="1" stop-color="#00B8D4"/>
+    </linearGradient>
+    <linearGradient id="dgrad" x1="24" y1="12" x2="48" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4A6CF7"/>
+      <stop offset="1" stop-color="#7B2FF7"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="20" fill="#0D1117"/>
+  <circle cx="32" cy="32" r="5" fill="#FFFFFF"/>
+  <path d="M20 22C20 17.5817 23.5817 14 28 14H35C41.6274 14 47 19.3726 47 26V28C47 34.6274 41.6274 40 35 40H29" stroke="url(#cgrad)" stroke-width="5" stroke-linecap="round"/>
+  <path d="M29 24C29 18.4772 33.4772 14 39 14H45C50.5228 14 55 18.4772 55 24V26C55 31.5228 50.5228 36 45 36H33" stroke="url(#dgrad)" stroke-width="5" stroke-linecap="round"/>
+  <ellipse cx="32" cy="32" rx="28" ry="28" fill="url(#glow)"/>
+</svg>

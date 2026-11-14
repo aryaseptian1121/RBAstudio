@@ -1,0 +1,56 @@
+{
+  "name": "JNT Upload Foto per Baris",
+  "description": "Copy data dari Excel ke app JNT lalu upload foto",
+  "normalFlowSteps": [
+    {
+      "type": "fokus_window",
+      "label": "Fokus ke App JNT",
+      "windowTitle": "JNT",
+      "timeout": 5000,
+      "delayAfter": 400
+    },
+    {
+      "type": "klik_koordinat",
+      "label": "Klik field input data",
+      "mode": "relatif",
+      "windowTitle": "JNT",
+      "x": 300,
+      "y": 200,
+      "clickType": "left",
+      "delayAfter": 200
+    },
+    {
+      "type": "paste_atau_ketik",
+      "label": "Paste nomor resi / data",
+      "method": "paste",
+      "delayAfter": 300
+    },
+    {
+      "type": "klik_koordinat",
+      "label": "Klik tombol Upload Foto",
+      "mode": "relatif",
+      "windowTitle": "JNT",
+      "x": 200,
+      "y": 400,
+      "clickType": "left",
+      "delayAfter": 500
+    },
+    {
+      "type": "upload_file_dialog",
+      "label": "Pilih file foto",
+      "filePath": "{{col_B}}",
+      "timeout": 5000,
+      "delayAfter": 500
+    },
+    {
+      "type": "klik_koordinat",
+      "label": "Klik tombol Unggah",
+      "mode": "relatif",
+      "windowTitle": "JNT",
+      "x": 300,
+      "y": 500,
+      "clickType": "left",
+      "delayAfter": 1000
+    }
+  ]
+}
